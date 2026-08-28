@@ -1,8 +1,9 @@
 import { notFound } from "next/navigation";
 import { prLabel } from "@diffsync/protocol";
 import { SourceBanner } from "@/components/SourceBanner";
-import { DiffPanelHost } from "@/components/DiffPanelHost";
+import { resolveIdentity } from "@/identity";
 import { fetchSource } from "@/lib/prs";
+import { ReviewSurface } from "./ReviewSurface";
 
 export default async function PrPage({
   params,
@@ -12,6 +13,8 @@ export default async function PrPage({
   const { key } = await params;
   const source = await fetchSource(key);
   if (source === null) notFound();
+
+  const identity = await resolveIdentity();
 
   return (
     <main>
@@ -23,7 +26,12 @@ export default async function PrPage({
 
       <SourceBanner source={source} />
 
-      <DiffPanelHost files={source.pr.files} />
+      <ReviewSurface
+        prKey={key}
+        source={source}
+        nickname={identity.nickname}
+        persistent={identity.persistent}
+      />
     </main>
   );
 }
