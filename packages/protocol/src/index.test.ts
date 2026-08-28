@@ -7,6 +7,7 @@ import {
   encode,
   parseClientMessage,
   parseServerMessage,
+  prLabel,
   pullRequestSchema,
   type ClientMessage,
   type ServerMessage,
@@ -244,5 +245,19 @@ describe("pullRequestSchema", () => {
     const file = parsed.files[0];
     if (file?.kind !== "patch") throw new Error("expected a patch file");
     expect(file.hunks[0]?.lines[0]).toEqual({ kind: "added", text: "a", newLine: 1 });
+  });
+});
+
+describe("prLabel", () => {
+  it("names a GitHub pull request the way GitHub does", () => {
+    expect(prLabel({ kind: "github", owner: "vercel", repo: "next.js", number: 42 })).toBe(
+      "vercel/next.js#42"
+    );
+  });
+
+  it("marks a fixture as a sample, so nobody mistakes it for a real PR", () => {
+    expect(prLabel({ kind: "fixture", slug: "auth-refactor", revision: 2 })).toBe(
+      "sample: auth-refactor"
+    );
   });
 });

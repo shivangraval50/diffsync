@@ -16,6 +16,15 @@ export const COMMENT_MAX_LENGTH = 2000;
 
 export { decodePrKey, encodePrKey } from "./prkey.js";
 
+/** One human-readable name for a pull request, used in the Neon archive and
+ *  on the home page. Shared rather than derived twice, so the archived label
+ *  and the rendered one cannot disagree. */
+export function prLabel(ref: PrRef): string {
+  return ref.kind === "github"
+    ? `${ref.owner}/${ref.repo}#${ref.number}`
+    : `sample: ${ref.slug}`;
+}
+
 /**
  * Compile-time proof that an inferred schema type is exactly the hand-written
  * interface it is supposed to mirror. Cheaper and stricter than the usual

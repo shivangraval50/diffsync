@@ -1,4 +1,5 @@
 import type { ReviewEvent } from "@diffsync/threads";
+import type { ArchiveOp } from "./archive.js";
 
 type Sql = SqlStorage;
 
@@ -11,6 +12,10 @@ export function initSchema(sql: Sql): void {
     CREATE TABLE IF NOT EXISTS meta (
       k TEXT PRIMARY KEY,
       v TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS outbox (
+      id      INTEGER PRIMARY KEY AUTOINCREMENT,
+      payload TEXT NOT NULL
     );
   `);
 }
@@ -42,4 +47,23 @@ export function readEventsSince(sql: Sql, seq: number): { seq: number; event: Re
     )
     .toArray()
     .map((row) => ({ seq: row.seq, event: JSON.parse(row.payload) as ReviewEvent }));
+}
+
+/** Append one archive op to this object's local outbox. A plain synchronous
+ *  `sql.exec` -- like `appendEvent` above, never a `Promise` -- so callers
+ *  in `webSocketMessage` can enqueue an archive without introducing a
+ *  suspension point into that handler. */
+export function enqueue(sql: Sql, op: ArchiveOp): void {
+  sql.exec("INSERT INTO outbox (payload) VALUES (?)", JSON.stringify(op));
+}
+
+export function readOutbox(sql: Sql): { id: number; op: ArchiveOp }[] {
+  return sql
+    .exec<{ id: number; payload: string }>("SELECT id, payload FROM outbox ORDER BY id ASC")
+    .toArray()
+    .map((row) => ({ id: row.id, op: JSON.parse(row.payload) as ArchiveOp }));
+}
+
+export function deleteOutbox(sql: Sql, id: number): void {
+  sql.exec("DELETE FROM outbox WHERE id = ?", id);
 }

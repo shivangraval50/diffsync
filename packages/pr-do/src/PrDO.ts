@@ -11,12 +11,14 @@ import {
   decodePrKey,
   encode,
   parseClientMessage,
+  prLabel,
   type Presence,
   type RejectReason,
   type ServerMessage,
   type SourceResult,
 } from "@diffsync/protocol";
 import { applyEvent, emptyThreads, type ReviewEvent, type ThreadsState } from "@diffsync/threads";
+import { runArchiveOp, type ArchiveOp } from "./archive.js";
 import { fetchGithubPr } from "./github.js";
 import {
   ACTION_CAPACITY,
@@ -27,7 +29,17 @@ import {
   takeToken,
   type Bucket,
 } from "./ratelimit.js";
-import { appendEvent, currentSeq, getMeta, initSchema, putMeta, readEventsSince } from "./sql.js";
+import {
+  appendEvent,
+  currentSeq,
+  deleteOutbox,
+  enqueue,
+  getMeta,
+  initSchema,
+  putMeta,
+  readEventsSince,
+  readOutbox,
+} from "./sql.js";
 
 interface Attachment {
   reviewerId: string;
@@ -96,8 +108,22 @@ export class PrDO extends DurableObject {
    */
   private fetchPr: typeof fetchGithubPr = fetchGithubPr;
 
+  /**
+   * Production always uses the real writer. Tests install a resolving fake:
+   * DATABASE_URL is deliberately unset across this package's test environment
+   * so the failure path is exercised for real, which otherwise makes the
+   * success path -- a row actually disappearing after a successful write --
+   * unreachable from any test.
+   */
+  private archiveFn: typeof runArchiveOp = runArchiveOp;
+
+  private static readonly RETRY_MS = 60_000;
+
+  private readonly roomEnv: PrEnv;
+
   constructor(ctx: DurableObjectState, env: PrEnv) {
     super(ctx, env as never);
+    this.roomEnv = env;
     initSchema(this.ctx.storage.sql);
   }
 
@@ -206,6 +232,41 @@ export class PrDO extends DurableObject {
   private cacheSource(result: SourceResult): void {
     putMeta(this.ctx.storage.sql, "source", JSON.stringify(result));
     this.cachedSource = result;
+    this.queue({
+      op: "upsertPr",
+      prKey: this.prKey(),
+      kind: result.pr.ref.kind,
+      label: prLabel(result.pr.ref),
+      title: result.pr.title,
+      headSha: result.pr.headSha,
+      origin: result.origin,
+    });
+  }
+
+  /**
+   * Append one archive op to the outbox and make sure an alarm exists to
+   * drain it later. Deliberately synchronous -- no `async`, no `await` --
+   * because this is also called from `webSocketMessage`'s resolve/unresolve
+   * branch, and that handler must contain no suspension point at all (see
+   * `currentSource`'s docstring above): an `await` there would let a second,
+   * concurrently-arriving message for this same object start running before
+   * this one's tail finished, exactly the interleaving window the class is
+   * written to keep closed.
+   *
+   * The outbox insert (`enqueue`) is a plain synchronous `sql.exec` call, so
+   * it is already safe to call from anywhere. Only the alarm write is a
+   * `Promise`; it is handed to `ctx.waitUntil` rather than dropped, so the
+   * write still lands even if this Durable Object would otherwise hibernate
+   * before it settles -- without `queue` itself ever suspending.
+   */
+  private queue(op: ArchiveOp): void {
+    enqueue(this.ctx.storage.sql, op);
+    this.ctx.waitUntil(this.ensureAlarm());
+  }
+
+  private async ensureAlarm(): Promise<void> {
+    const existing = await this.ctx.storage.getAlarm();
+    if (existing === null) await this.ctx.storage.setAlarm(Date.now() + PrDO.RETRY_MS);
   }
 
   /**
@@ -532,8 +593,74 @@ export class PrDO extends DurableObject {
         reviewerId: attachment.reviewerId,
         atMs,
       });
+
+      // `commit` has already folded the event, so `this.threads()` is
+      // current. `queue` is synchronous (see its own docstring) -- no
+      // suspension point is added here, matching the rest of this handler.
+      if (msg.t === "resolve") {
+        const thread = this.threads().threads[msg.threadId];
+        if (thread !== undefined) {
+          this.queue({
+            op: "archiveThread",
+            prKey: this.prKey(),
+            threadId: thread.threadId,
+            filePath: thread.anchor.filePath,
+            // The line as of the revision the comment was made against,
+            // which is the only line number that is a fact rather than a
+            // derivation.
+            line: thread.anchor.line,
+            body: thread.comments[0]?.body ?? "",
+            commentCount: thread.comments.length,
+            openedBy: thread.comments[0]?.nickname ?? "unknown",
+            resolvedBy: attachment.nickname,
+            resolvedAtMs: atMs,
+          });
+        }
+      } else {
+        this.queue({ op: "removeThread", prKey: this.prKey(), threadId: msg.threadId });
+      }
       return;
     }
+  }
+
+  /**
+   * Drain the archive outbox. Anything that fails -- an unset DATABASE_URL, a
+   * network error, Postgres being down -- stays queued and is retried. A Neon
+   * outage must never lose an archive or touch a live review.
+   *
+   * A failure is caught, never rethrown -- rethrowing here would be the
+   * alarm equivalent of a socket-path exception, and this object has live
+   * reviewers who owe nothing to Postgres's availability. But caught must
+   * not mean silent: a `catch` with nothing in it is exactly how openbid's
+   * archive shipped broken with a fully green test suite (see the sibling
+   * project's `replay.ts` and the comment on `runArchiveOp`) -- every failed
+   * validation vanished into an empty `catch {}` and nothing ever surfaced
+   * it. This logs instead, so a real outage or a misconfigured secret shows
+   * up somewhere even though it never reaches a client.
+   *
+   * This object has no other use for its single alarm: unlike an auction, a
+   * review has no deadline, so there is no expiry clock to protect here.
+   */
+  override async alarm(): Promise<void> {
+    const rows = readOutbox(this.ctx.storage.sql);
+    if (rows.length === 0) return;
+
+    let anyFailed = false;
+    for (const row of rows) {
+      try {
+        await this.archiveFn(this.roomEnv.DATABASE_URL, row.op);
+        deleteOutbox(this.ctx.storage.sql, row.id);
+      } catch (err) {
+        console.error("diffsync archive write failed; will retry on the next alarm", {
+          op: row.op.op,
+          prKey: row.op.prKey,
+          error: err instanceof Error ? err.message : String(err),
+        });
+        anyFailed = true;
+      }
+    }
+
+    if (anyFailed) await this.ctx.storage.setAlarm(Date.now() + PrDO.RETRY_MS);
   }
 
   private snapshotFor(reviewerId: string): ServerMessage {
