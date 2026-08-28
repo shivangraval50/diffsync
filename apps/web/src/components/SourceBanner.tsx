@@ -17,14 +17,14 @@ export function SourceBanner({ source }: { source: SourceResult }): React.JSX.El
 
   if (source.origin === "fixture") {
     return (
-      <p role="status" data-testid="source-banner">
+      <p role="status" data-testid="source-banner" className="notice notice--info">
         This is a seeded sample pull request. It works offline and is never rate-limited.
       </p>
     );
   }
 
   return (
-    <p role="alert" data-testid="source-banner">
+    <p role="alert" data-testid="source-banner" className="notice notice--warn">
       {FALLBACK_TEXT[source.reason]}
     </p>
   );

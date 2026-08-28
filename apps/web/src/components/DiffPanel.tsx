@@ -34,14 +34,20 @@ export function DiffPanel(props: DiffPanelProps): React.JSX.Element {
   const [view, setView] = useState<DiffViewMode>("unified");
 
   return (
-    <div>
-      <div role="group" aria-label="Diff view">
-        <button type="button" aria-pressed={view === "unified"} onClick={() => setView("unified")}>
-          Unified
-        </button>
-        <button type="button" aria-pressed={view === "split"} onClick={() => setView("split")}>
-          Split
-        </button>
+    <div className="diff-panel">
+      {/* A segmented control rather than two loose buttons -- Layout, Best
+          practices: "group them in logical sections". The selected state is
+          drawn straight from `aria-pressed`, so the highlight and the
+          accessibility tree cannot drift apart. */}
+      <div className="diff-toolbar">
+        <div role="group" aria-label="Diff view" className="segmented">
+          <button type="button" aria-pressed={view === "unified"} onClick={() => setView("unified")}>
+            Unified
+          </button>
+          <button type="button" aria-pressed={view === "split"} onClick={() => setView("split")}>
+            Split
+          </button>
+        </div>
       </div>
 
       {props.files.map((file) => (

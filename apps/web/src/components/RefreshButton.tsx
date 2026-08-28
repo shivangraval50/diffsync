@@ -14,7 +14,9 @@ export function RefreshButton({
     <form action={refreshPr}>
       <input type="hidden" name="key" value={prKey} />
       <input type="hidden" name="nextRevision" value={nextRevision === null ? "" : nextRevision} />
-      <button type="submit">{label}</button>
+      <button type="submit" className="btn">
+        {label}
+      </button>
     </form>
   );
 }

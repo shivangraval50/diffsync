@@ -16,5 +16,9 @@ export function RejectBanner({
   reject: { clientSeq: number; reason: RejectReason } | null;
 }): React.JSX.Element | null {
   if (reject === null) return null;
-  return <p role="alert">{MESSAGES[reject.reason]}</p>;
+  return (
+    <p role="alert" className="notice notice--error">
+      {MESSAGES[reject.reason]}
+    </p>
+  );
 }

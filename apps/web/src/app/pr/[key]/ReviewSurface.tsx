@@ -128,81 +128,99 @@ export function ReviewSurface({
   }, [presence, youAre]);
 
   return (
-    <div>
+    // Layout, Adaptability: the diff takes the main column and the outdated
+    // panel takes a rail beside it, so the honest answer to "where did my
+    // comment go" stays in view while the diff scrolls. The rail collapses
+    // to nothing (`.review-rail:empty`) when no thread is outdated, and the
+    // whole grid falls back to one column below 68rem. Only these two
+    // wrappers are new, and neither of them sits between a diff row and its
+    // threads.
+    <div className="review">
       <PresenceBar presence={presence} youAre={youAre} status={status} />
-      <AiPanel pass={aiPass} />
-      <DiffPanel
-        files={source.pr.files}
-        selected={selected}
-        cursorsByLine={cursorsByLine}
-        renderBelow={(path, line) => {
-          const here = layout.located.get(path)?.get(line) ?? [];
-          const composing = selected !== null && selected.path === path && selected.line === line;
-          if (here.length === 0 && !composing) return null;
-          return (
-            <div>
-              {here.map(({ thread }) => (
-                <ThreadCard
-                  key={thread.threadId}
-                  thread={thread}
-                  onReply={(body) =>
-                    connection.current?.send({
-                      t: "reply",
-                      clientSeq: nextClientSeq(),
-                      threadId: thread.threadId,
-                      body,
-                    })
-                  }
-                  onResolve={() =>
-                    connection.current?.send({
-                      t: "resolve",
-                      clientSeq: nextClientSeq(),
-                      threadId: thread.threadId,
-                    })
-                  }
-                  onUnresolve={() =>
-                    connection.current?.send({
-                      t: "unresolve",
-                      clientSeq: nextClientSeq(),
-                      threadId: thread.threadId,
-                    })
-                  }
-                />
-              ))}
-              {composing ? (
-                <ThreadComposer
-                  filePath={path}
-                  line={line}
-                  onCancel={() => setSelected(null)}
-                  onSubmit={(body) => {
-                    const target = targets.get(path);
-                    if (target === undefined) return;
-                    // Built from the source this page is rendering, so the
-                    // Durable Object's own recomputation either matches it or
-                    // rejects it as STALE_ANCHOR. The reviewer's position is
-                    // never inferred server-side from a bare line number.
-                    const anchor = createAnchor(target, line);
-                    if (anchor === null) return;
-                    connection.current?.send({
-                      t: "openThread",
-                      clientSeq: nextClientSeq(),
-                      anchor,
-                      body,
-                    });
-                    setSelected(null);
-                  }}
-                />
-              ) : null}
-            </div>
-          );
-        }}
-        onLineSelect={(path, line) => {
-          setSelected({ path, line });
-          connection.current?.send({ t: "cursor", filePath: path, line });
-        }}
-      />
-      <RejectBanner reject={lastReject} />
-      <OutdatedPanel threads={layout.outdated} />
+      <div className="review-main">
+        <AiPanel pass={aiPass} />
+        <DiffPanel
+          files={source.pr.files}
+          selected={selected}
+          cursorsByLine={cursorsByLine}
+          renderBelow={(path, line) => {
+            const here = layout.located.get(path)?.get(line) ?? [];
+            const composing = selected !== null && selected.path === path && selected.line === line;
+            if (here.length === 0 && !composing) return null;
+            // A BARE SIBLING of the row, inside the row's own wrapper -- never
+            // a child of the row, and never lifted out into a gutter or a
+            // sidebar. That relationship is what `force-push.spec.ts` reads
+            // with `locator("..")` to prove a comment sits on line 18 and not
+            // merely somewhere on the page, so this element's position in the
+            // tree is load-bearing. The styling hangs off the class; the
+            // structure is untouched.
+            return (
+              <div className="thread-stack">
+                {here.map(({ thread }) => (
+                  <ThreadCard
+                    key={thread.threadId}
+                    thread={thread}
+                    onReply={(body) =>
+                      connection.current?.send({
+                        t: "reply",
+                        clientSeq: nextClientSeq(),
+                        threadId: thread.threadId,
+                        body,
+                      })
+                    }
+                    onResolve={() =>
+                      connection.current?.send({
+                        t: "resolve",
+                        clientSeq: nextClientSeq(),
+                        threadId: thread.threadId,
+                      })
+                    }
+                    onUnresolve={() =>
+                      connection.current?.send({
+                        t: "unresolve",
+                        clientSeq: nextClientSeq(),
+                        threadId: thread.threadId,
+                      })
+                    }
+                  />
+                ))}
+                {composing ? (
+                  <ThreadComposer
+                    filePath={path}
+                    line={line}
+                    onCancel={() => setSelected(null)}
+                    onSubmit={(body) => {
+                      const target = targets.get(path);
+                      if (target === undefined) return;
+                      // Built from the source this page is rendering, so the
+                      // Durable Object's own recomputation either matches it or
+                      // rejects it as STALE_ANCHOR. The reviewer's position is
+                      // never inferred server-side from a bare line number.
+                      const anchor = createAnchor(target, line);
+                      if (anchor === null) return;
+                      connection.current?.send({
+                        t: "openThread",
+                        clientSeq: nextClientSeq(),
+                        anchor,
+                        body,
+                      });
+                      setSelected(null);
+                    }}
+                  />
+                ) : null}
+              </div>
+            );
+          }}
+          onLineSelect={(path, line) => {
+            setSelected({ path, line });
+            connection.current?.send({ t: "cursor", filePath: path, line });
+          }}
+        />
+        <RejectBanner reject={lastReject} />
+      </div>
+      <div className="review-rail">
+        <OutdatedPanel threads={layout.outdated} />
+      </div>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { toSplitRows, type FileDiff } from "@diffsync/diff";
+import { toSplitRows, type DiffHunk, type FileDiff } from "@diffsync/diff";
 
 export type DiffViewMode = "unified" | "split";
 
@@ -27,7 +27,7 @@ function Cursors({
   const names = cursorsByLine.get(line);
   if (names === undefined || names.length === 0) return null;
   return (
-    <span data-testid={`cursors-${path}-${line}`} aria-label="reviewers here">
+    <span data-testid={`cursors-${path}-${line}`} aria-label="reviewers here" className="cursors">
       {names.join(", ")}
     </span>
   );
@@ -40,11 +40,20 @@ function Cursors({
  * a given new-side line are identical no matter which layout is showing.
  * That is what keeps a thread anchored to the same code across a view
  * toggle: the row *is* the new-side line, not a position on screen.
+ *
+ * `kind` is presentation only. It picks the row's tint, its left rule and
+ * the glyph in front of the code -- three independent channels, so an added
+ * line still reads as added in greyscale (Accessibility, Vision: "convey
+ * information with more than color alone"). It never gates the anchor
+ * control: an unchanged context line is exactly as commentable as an added
+ * one, and widening or narrowing what can be anchored is not a layout
+ * decision.
  */
 function NewSideRow({
   path,
   line,
   text,
+  kind,
   selected,
   cursorsByLine,
   onLineSelect,
@@ -52,22 +61,31 @@ function NewSideRow({
   path: string;
   line: number;
   text: string;
+  kind: "added" | "context";
   selected: boolean;
   cursorsByLine: ReadonlyMap<number, readonly string[]>;
   onLineSelect: (line: number) => void;
 }): React.JSX.Element {
   return (
-    <div data-testid={`line-${path}-${line}`} data-selected={selected ? "true" : "false"}>
+    <div
+      data-testid={`line-${path}-${line}`}
+      data-selected={selected ? "true" : "false"}
+      data-kind={kind}
+      className="row"
+    >
       <button
         type="button"
         data-testid={`anchor-${path}-${line}`}
         aria-label={`Comment on line ${line} of ${path}`}
+        className="anchor"
         onClick={() => onLineSelect(line)}
       >
         +
       </button>
-      <span data-testid="new-line-number">{line}</span>
-      <code>{text}</code>
+      <span data-testid="new-line-number" className="ln">
+        {line}
+      </span>
+      <code className="src">{text}</code>
       <Cursors path={path} line={line} cursorsByLine={cursorsByLine} />
     </div>
   );
@@ -76,8 +94,10 @@ function NewSideRow({
 function OldSideCell({ line, text }: { line: number; text: string }): React.JSX.Element {
   return (
     <>
-      <span data-testid="old-line-number">{line}</span>
-      <code>{text}</code>
+      <span data-testid="old-line-number" className="ln">
+        {line}
+      </span>
+      <code className="src">{text}</code>
     </>
   );
 }
@@ -98,7 +118,7 @@ function RemovedRow({
   text: string;
 }): React.JSX.Element {
   return (
-    <div data-testid={`removed-${path}-${oldLine}`}>
+    <div data-testid={`removed-${path}-${oldLine}`} data-kind="removed" className="removed-row">
       <OldSideCell line={oldLine} text={text} />
     </div>
   );
@@ -108,6 +128,27 @@ function explainOmission(reason: "too_large" | "binary"): string {
   return reason === "binary"
     ? "This file is binary, so there is no diff to show."
     : "This file is too large for GitHub to return a diff.";
+}
+
+/**
+ * Which line numbers a hunk actually changed, on each side.
+ *
+ * `SplitRow` carries only text and a line number, so the split view cannot
+ * tell an addition from an unchanged line by looking at a cell alone, and
+ * comparing the two sides' text would misread a removed `}` paired with an
+ * added `}` as unchanged. Reading the kinds straight off the hunk is exact,
+ * and keeps the knowledge here rather than widening `SplitRow` -- which is
+ * shared with `toAnchorTarget` and has no business growing a presentation
+ * field.
+ */
+function changedLines(hunk: DiffHunk): { added: Set<number>; removed: Set<number> } {
+  const added = new Set<number>();
+  const removed = new Set<number>();
+  for (const line of hunk.lines) {
+    if (line.kind === "added") added.add(line.newLine);
+    else if (line.kind === "removed") removed.add(line.oldLine);
+  }
+  return { added, removed };
 }
 
 /**
@@ -122,9 +163,11 @@ export function DiffFileView(props: DiffFileViewProps): React.JSX.Element {
 
   if (file.kind === "omitted") {
     return (
-      <section aria-label={file.path}>
-        <h3>{file.path}</h3>
-        <p data-testid={`omitted-${file.path}`}>{explainOmission(file.reason)}</p>
+      <section aria-label={file.path} className="file">
+        <h3 className="file__path">{file.path}</h3>
+        <p data-testid={`omitted-${file.path}`} className="file__note">
+          {explainOmission(file.reason)}
+        </p>
       </section>
     );
   }
@@ -135,9 +178,9 @@ export function DiffFileView(props: DiffFileViewProps): React.JSX.Element {
     // empty map for it). Saying so explicitly keeps a bare heading from
     // reading as "the diff failed to load".
     return (
-      <section aria-label={file.path}>
-        <h3>{file.path}</h3>
-        <p data-testid={`no-changes-${file.path}`}>
+      <section aria-label={file.path} className="file">
+        <h3 className="file__path">{file.path}</h3>
+        <p data-testid={`no-changes-${file.path}`} className="file__note">
           {file.status === "renamed" && file.previousPath !== null
             ? `Renamed from ${file.previousPath}. No content changed.`
             : "No changes to show."}
@@ -153,68 +196,97 @@ export function DiffFileView(props: DiffFileViewProps): React.JSX.Element {
   let splitRowIndex = 0;
 
   return (
-    <section aria-label={file.path}>
-      <h3>{file.path}</h3>
-      {file.hunks.map((hunk, hunkIndex) => (
-        <div key={`hunk-${hunk.newStart}-${hunkIndex}`} data-testid={`hunk-${file.path}-${hunkIndex}`}>
-          <p>{`@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@ ${hunk.heading}`}</p>
+    <section aria-label={file.path} className="file">
+      <h3 className="file__path">{file.path}</h3>
+      {file.hunks.map((hunk, hunkIndex) => {
+        const changed = changedLines(hunk);
+        return (
+          <div
+            key={`hunk-${hunk.newStart}-${hunkIndex}`}
+            data-testid={`hunk-${file.path}-${hunkIndex}`}
+            className="hunk"
+          >
+            <p className="hunk__header">{`@@ -${hunk.oldStart},${hunk.oldCount} +${hunk.newStart},${hunk.newCount} @@ ${hunk.heading}`}</p>
 
-          {view === "unified"
-            ? hunk.lines.map((line) =>
-                line.kind === "removed" ? (
-                  <RemovedRow
-                    key={`removed-${line.oldLine}`}
-                    path={file.path}
-                    oldLine={line.oldLine}
-                    text={line.text}
-                  />
-                ) : (
-                  <div key={`new-${line.newLine}`}>
-                    <NewSideRow
+            {view === "unified"
+              ? hunk.lines.map((line) =>
+                  line.kind === "removed" ? (
+                    <RemovedRow
+                      key={`removed-${line.oldLine}`}
                       path={file.path}
-                      line={line.newLine}
+                      oldLine={line.oldLine}
                       text={line.text}
-                      selected={selectedLine === line.newLine}
-                      cursorsByLine={cursorsByLine}
-                      onLineSelect={onLineSelect}
                     />
-                    {renderBelow(line.newLine)}
-                  </div>
+                  ) : (
+                    // The wrapper that makes "this comment is on this line"
+                    // structurally true: the row and whatever `renderBelow`
+                    // returns are bare siblings inside it, and nothing else
+                    // is. `force-push.spec.ts` reads exactly this
+                    // relationship with `locator("..")`, so nothing may be
+                    // inserted between them.
+                    <div key={`new-${line.newLine}`} className="row-wrap">
+                      <NewSideRow
+                        path={file.path}
+                        line={line.newLine}
+                        text={line.text}
+                        kind={line.kind}
+                        selected={selectedLine === line.newLine}
+                        cursorsByLine={cursorsByLine}
+                        onLineSelect={onLineSelect}
+                      />
+                      {renderBelow(line.newLine)}
+                    </div>
+                  )
                 )
-              )
-            : toSplitRows(hunk).map((row) => {
-                const rowKey = splitRowIndex;
-                splitRowIndex += 1;
-                return (
-                  <div key={`split-${rowKey}`} data-testid={`split-row-${file.path}-${rowKey}`}>
-                    <span data-testid="split-left">
-                      {row.left === null ? null : <OldSideCell line={row.left.line} text={row.left.text} />}
-                    </span>
-                    {row.right === null ? (
-                      // A removal with nothing to its right: a layout-only
-                      // spacer. No NewSideRow, no anchor, no line-* testid --
-                      // there is no new-side line here to comment on.
-                      <span data-testid="split-right" />
-                    ) : (
-                      <>
-                        <span data-testid="split-right">
-                          <NewSideRow
-                            path={file.path}
-                            line={row.right.line}
-                            text={row.right.text}
-                            selected={selectedLine === row.right.line}
-                            cursorsByLine={cursorsByLine}
-                            onLineSelect={onLineSelect}
-                          />
-                        </span>
-                        {renderBelow(row.right.line)}
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-        </div>
-      ))}
+              : toSplitRows(hunk).map((row) => {
+                  const rowKey = splitRowIndex;
+                  splitRowIndex += 1;
+                  return (
+                    <div
+                      key={`split-${rowKey}`}
+                      data-testid={`split-row-${file.path}-${rowKey}`}
+                      className="split-row"
+                    >
+                      <span
+                        data-testid="split-left"
+                        className="split-cell split-cell--left"
+                        data-kind={
+                          row.left !== null && changed.removed.has(row.left.line)
+                            ? "removed"
+                            : "context"
+                        }
+                      >
+                        {row.left === null ? null : (
+                          <OldSideCell line={row.left.line} text={row.left.text} />
+                        )}
+                      </span>
+                      {row.right === null ? (
+                        // A removal with nothing to its right: a layout-only
+                        // spacer. No NewSideRow, no anchor, no line-* testid --
+                        // there is no new-side line here to comment on.
+                        <span data-testid="split-right" className="split-cell split-cell--right" />
+                      ) : (
+                        <>
+                          <span data-testid="split-right" className="split-cell split-cell--right">
+                            <NewSideRow
+                              path={file.path}
+                              line={row.right.line}
+                              text={row.right.text}
+                              kind={changed.added.has(row.right.line) ? "added" : "context"}
+                              selected={selectedLine === row.right.line}
+                              cursorsByLine={cursorsByLine}
+                              onLineSelect={onLineSelect}
+                            />
+                          </span>
+                          {renderBelow(row.right.line)}
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+          </div>
+        );
+      })}
     </section>
   );
 }

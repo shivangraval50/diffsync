@@ -1,0 +1,1345 @@
+/* =========================================================================
+   diffsync design system
+   -------------------------------------------------------------------------
+   One stylesheet, four layers: tokens, base, primitives, components.
+
+   Guidelines cited inline refer to the Apple Human Interface Guidelines
+   documents in ~/.claude/skills/apple-design/references/hig/. Native chrome
+   (tab bars, sheets, back chevrons) is deliberately NOT imported -- this is a
+   desktop-first web tool, so only the transferable parts of the HIG apply:
+   the type scale, the 4pt spacing rhythm, colour semantics, measured
+   contrast, hit targets, focus, and reduced motion.
+   ========================================================================= */
+
+/* -------------------------------------------------------------------------
+   1. TOKENS
+   Colour, Best practices: "Make sure all your app's colors work well in
+   light, dark, and increased contrast contexts... If you define a custom
+   color, make sure to supply light and dark variants, and an increased
+   contrast option for each variant."  Every colour below is a token with a
+   light value, a dark override, and a prefers-contrast: more override.
+   ------------------------------------------------------------------------- */
+
+:root {
+  color-scheme: light dark;
+
+  /* Typography. Typography, Using system fonts: "Access all system fonts --
+     don't embed system fonts in your app." No webfont is downloaded; the
+     system UI face and the system monospace face are used directly, which is
+     also why first paint carries no font swap. */
+  --font-ui:
+    -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto,
+    "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
+    monospace;
+
+  /* Typography, Conveying hierarchy: five steps, no more -- weight and
+     colour do the rest of the work. Accessibility, Vision: the desktop
+     minimum is 10 pt, so --fs-micro (11px) is the smallest text used
+     anywhere, and --fs-body (13.5px) sits just above the 13 pt desktop
+     default. */
+  --fs-display: 2.125rem; /* 34px -- home wordmark only */
+  --fs-title: 1.0625rem; /* 17px -- PR title */
+  --fs-heading: 0.9375rem; /* 15px -- section headings */
+  --fs-body: 0.84375rem; /* 13.5px */
+  --fs-caption: 0.75rem; /* 12px */
+  --fs-micro: 0.6875rem; /* 11px -- line numbers, chips */
+  --fs-code: 0.78125rem; /* 12.5px */
+  --lh-code: 1.25rem; /* 20px -- tight, stable diff rhythm */
+
+  /* Layout, Best practices: "Group related items... use negative space".
+     A single 4pt rhythm so every gap in the app is a multiple of one unit. */
+  --s1: 0.25rem;
+  --s2: 0.5rem;
+  --s3: 0.75rem;
+  --s4: 1rem;
+  --s5: 1.25rem;
+  --s6: 1.5rem;
+  --s8: 2rem;
+  --s12: 3rem;
+
+  --radius-sm: 5px;
+  --radius: 8px;
+  --radius-lg: 12px;
+
+  --w-anchor: 26px;
+  --w-ln: 46px;
+  --header-h: 3.5rem;
+  --page-max: 90rem;
+
+  /* Surfaces. Dark Mode, Mobile platforms: base vs elevated. The same idea
+     applies in light: the canvas recedes, cards advance. */
+  --bg-canvas: #f5f6f8;
+  --bg-surface: #ffffff;
+  /* Dark Mode, Mobile platforms: "the system uses two sets of background
+     colors -- called base and elevated -- to enhance the perception of depth
+     when one dark interface is layered above another." A thread card sits on
+     top of the file card, so it takes the elevated value. In light there is
+     nothing brighter than white, so elevation is carried by the shadow. */
+  --bg-elevated: #ffffff;
+  --bg-sunken: #eef0f3;
+  --bg-hover: rgba(16, 24, 40, 0.045);
+  --bg-selected: rgba(10, 102, 217, 0.09);
+
+  /* Labels. Dark Mode, Text: "Use the system-provided label colors...
+     primary, secondary, tertiary." */
+  --fg-primary: #16181c; /* 17.8:1 on surface */
+  --fg-secondary: #5a6069; /*  6.3:1 on surface */
+  --fg-tertiary: #7b828c; /*  3.9:1 on surface -- non-text UI only */
+
+  --separator: #d8dce1;
+  --separator-strong: #c2c8d0;
+
+  /* Colour, Best practices: "Avoid using the same color to mean different
+     things." Blue is interactivity and only interactivity: links, the
+     anchor control, focus, selection. Never decoration. */
+  --accent: #0b5fce; /* 5.9:1 on surface -- accent-coloured text */
+  --accent-fill: #0a66d9; /* white on it: 5.4:1 */
+  --accent-soft: rgba(11, 95, 206, 0.1);
+
+  /* Diff semantics. Never carried by hue alone -- see .src::before. */
+  --added-bg: #e7f7ec;
+  --added-rule: #1a8038; /* 5.0:1 on surface */
+  --added-fg: #0f7a32; /* 4.9:1 on --added-bg */
+  --removed-bg: #fdecea;
+  --removed-rule: #c0392f; /* 5.4:1 on surface */
+  --removed-fg: #b3261e; /* 5.7:1 on --removed-bg */
+
+  /* Feedback, and Colour: amber is "this needs your attention", never
+     "something broke". The outdated panel uses it on purpose. */
+  --notice-bg: #fff6e5;
+  --notice-rule: #c8891a;
+  --notice-fg: #8a5a00; /* 5.5:1 on --notice-bg */
+  --danger-bg: #fdecea;
+  --danger-rule: #c0392f;
+  --danger-fg: #b3261e;
+
+  --shadow-card:
+    0 1px 2px rgba(16, 24, 40, 0.06), 0 1px 1px rgba(16, 24, 40, 0.04);
+  --shadow-raised:
+    0 8px 24px rgba(16, 24, 40, 0.1), 0 1px 2px rgba(16, 24, 40, 0.06);
+
+  /* Materials: "Use materials to create visual separation and hierarchy
+     between UI layers." The sticky bars are a control layer over content,
+     so they are translucent and blurred rather than opaque slabs. */
+  --material-bar: color-mix(in srgb, #ffffff 78%, transparent);
+
+  --motion-fast: 120ms;
+  --motion-ease: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg-canvas: #0c0e12;
+    --bg-surface: #14171c;
+    --bg-elevated: #1b1f26;
+    --bg-sunken: #0f1216;
+    --bg-hover: rgba(255, 255, 255, 0.055);
+    --bg-selected: rgba(107, 168, 255, 0.13);
+
+    --fg-primary: #e7ebf0; /* 15.0:1 on surface */
+    --fg-secondary: #a2abb8; /*  7.7:1 on surface */
+    --fg-tertiary: #7c8695; /*  4.9:1 on surface */
+
+    --separator: #262b33;
+    --separator-strong: #333a45;
+
+    --accent: #6ba8ff; /* 7.4:1 on surface */
+    --accent-fill: #1f6feb; /* white on it: 4.6:1 */
+    --accent-soft: rgba(107, 168, 255, 0.14);
+
+    --added-bg: #0d1e14;
+    --added-rule: #3fb964; /* 7.1:1 on surface */
+    --added-fg: #6fd68c; /* 7.7:1 on --added-bg */
+    --removed-bg: #231311;
+    --removed-rule: #f0685c; /* 5.9:1 on surface */
+    --removed-fg: #ff9a90; /* 7.9:1 on --removed-bg */
+
+    --notice-bg: #33270d;
+    --notice-rule: #c99a2e;
+    --notice-fg: #f2c368; /* 8.9:1 on --notice-bg */
+    --danger-bg: #231311;
+    --danger-rule: #f0685c;
+    --danger-fg: #ff9a90;
+
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.5);
+    --shadow-raised:
+      0 12px 32px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.5);
+    --material-bar: color-mix(in srgb, #14171c 78%, transparent);
+  }
+}
+
+/* Accessibility, Vision: "If your app doesn't provide this minimum contrast
+   by default, ensure it at least provides a higher contrast color scheme
+   when the system setting Increase Contrast is turned on." It does provide
+   it by default; this pushes further. */
+@media (prefers-contrast: more) {
+  :root {
+    --fg-secondary: #3d424a;
+    --fg-tertiary: #4d535c;
+    --separator: #9aa2ad;
+    --separator-strong: #6d7681;
+    --material-bar: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --fg-secondary: #d3d9e1;
+      --fg-tertiary: #b6bec9;
+      --separator: #5b6470;
+      --separator-strong: #7a838f;
+      --material-bar: #14171c;
+    }
+  }
+}
+
+/* -------------------------------------------------------------------------
+   2. BASE
+   ------------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  /* Layout, Best practices: "Make sure backgrounds ... extend to the edges
+     of the display." */
+  min-height: 100dvh;
+  background: var(--bg-canvas);
+  color: var(--fg-primary);
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+p {
+  margin: 0;
+}
+
+ul,
+ol {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+code,
+pre {
+  font-family: var(--font-mono);
+  font-size: var(--fs-code);
+}
+
+/* Focus and selection, Best practices: "Rely on system-provided focus
+   effects ... indicate focus using visual appearances that are consistent
+   with the platform." A single ring, drawn outside the element so it is
+   never clipped, on every interactive element -- and only on keyboard
+   focus, so pointer users never see it. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+/* Motion, Best practices: "Make motion optional." Accessibility, Cognitive:
+   respond to Reduce Motion by "reducing automatic and repetitive
+   animations". Nothing here animates on its own; this removes the rest. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* -------------------------------------------------------------------------
+   3. PRIMITIVES
+   ------------------------------------------------------------------------- */
+
+/* Kept in the accessibility tree, removed from the page. Used where a label
+   is required for the control's accessible name but would read as noise
+   next to a button that already says the same word. */
+.vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Accessibility, Mobility: the desktop hit-target minimum is 20x20 pt and
+   the recommended size is 28x28 pt. Every button below is at least 28px
+   tall; the one exception (.anchor) restores 28x28 with a transparent
+   ::after, see its rule. */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  min-height: 28px;
+  padding: 0 var(--s3);
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--fg-primary);
+  font: inherit;
+  font-size: var(--fs-caption);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--motion-fast) var(--motion-ease),
+    border-color var(--motion-fast) var(--motion-ease);
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--bg-sunken);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn--primary {
+  border-color: transparent;
+  background: var(--accent-fill);
+  color: #ffffff;
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent-fill) 88%, #000000);
+}
+
+.btn--quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg-secondary);
+}
+
+.btn--quiet:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--fg-primary);
+}
+
+.field {
+  width: 100%;
+  min-height: 32px;
+  padding: var(--s2) var(--s3);
+  border: 1px solid var(--separator-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--fg-primary);
+  font: inherit;
+  font-size: var(--fs-body);
+}
+
+.field::placeholder {
+  color: var(--fg-tertiary);
+}
+
+textarea.field {
+  min-height: 4.5rem;
+  resize: vertical;
+  line-height: 1.45;
+}
+
+.label {
+  display: block;
+  margin-bottom: var(--s1);
+  color: var(--fg-secondary);
+  font-size: var(--fs-caption);
+  font-weight: 500;
+}
+
+/* Feedback: status, warning and error all share one shape so the difference
+   between them is read from the rule colour AND the wording, not from a
+   shape the reader has to learn. */
+.notice {
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--separator);
+  border-left: 3px solid var(--fg-tertiary);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--fg-secondary);
+  font-size: var(--fs-caption);
+}
+
+.notice--info {
+  border-left-color: var(--accent);
+}
+
+.notice--warn {
+  border-color: color-mix(in srgb, var(--notice-rule) 40%, transparent);
+  border-left-color: var(--notice-rule);
+  background: var(--notice-bg);
+  color: var(--notice-fg);
+}
+
+.notice--error {
+  border-color: color-mix(in srgb, var(--danger-rule) 40%, transparent);
+  border-left-color: var(--danger-rule);
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+}
+
+.card {
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+/* -------------------------------------------------------------------------
+   4. HOME
+   ------------------------------------------------------------------------- */
+
+.home {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: clamp(3rem, 11vh, 7rem) var(--s5) var(--s12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s6);
+}
+
+.home__title {
+  font-family: var(--font-mono);
+  font-size: var(--fs-display);
+  font-weight: 600;
+  letter-spacing: -0.045em;
+  line-height: 1.1;
+}
+
+.home__lead {
+  max-width: 34rem;
+  color: var(--fg-secondary);
+  font-size: 1rem;
+  line-height: 1.5;
+}
+
+.home__form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "label label"
+    "input button";
+  gap: var(--s1) var(--s2);
+  align-items: end;
+  padding: var(--s4);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.home__form > label {
+  grid-area: label;
+}
+
+.home__form > input {
+  grid-area: input;
+}
+
+.home__form > button {
+  grid-area: button;
+  min-height: 32px;
+  padding: 0 var(--s4);
+  font-size: var(--fs-body);
+}
+
+.home__section-title {
+  margin-top: var(--s4);
+  font-size: var(--fs-heading);
+  color: var(--fg-primary);
+}
+
+/* Layout, Visual hierarchy: "Align components with one another to make them
+   easier to scan." One column of equal cards, not a ragged list. */
+.sample-list {
+  display: grid;
+  gap: var(--s2);
+  margin-top: calc(var(--s4) * -1 + var(--s3));
+}
+
+.sample {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  padding: var(--s3) var(--s4);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  background: var(--bg-surface);
+  transition: border-color var(--motion-fast) var(--motion-ease);
+}
+
+.sample:hover {
+  border-color: var(--separator-strong);
+  background: var(--bg-surface);
+}
+
+.sample:has(a:focus-visible) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.sample__link {
+  font-size: var(--fs-body);
+  font-weight: 600;
+  color: var(--fg-primary);
+}
+
+/* The whole card is the target -- Accessibility, Mobility -- without adding
+   a wrapper element or a second tab stop. */
+.sample__link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.sample__link:hover {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.sample__blurb {
+  color: var(--fg-secondary);
+  font-size: var(--fs-caption);
+}
+
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: calc(var(--s4) * -1 + var(--s3));
+}
+
+.recent {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s3);
+  padding: var(--s2) 0;
+  border-bottom: 1px solid var(--separator);
+  color: var(--fg-secondary);
+  font-size: var(--fs-caption);
+}
+
+.recent:last-child {
+  border-bottom: 0;
+}
+
+.recent a {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  white-space: nowrap;
+}
+
+/* -------------------------------------------------------------------------
+   5. PR PAGE SHELL
+   ------------------------------------------------------------------------- */
+
+.pr-page {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Materials + Layout, Visual hierarchy: "Differentiate controls from
+   content." The title bar is the control layer; it floats over the diff on
+   a translucent material rather than sitting on the same plane. */
+.page-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  border-bottom: 1px solid var(--separator);
+  background: var(--material-bar);
+  backdrop-filter: saturate(180%) blur(20px);
+  -webkit-backdrop-filter: saturate(180%) blur(20px);
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .page-header {
+    background: var(--bg-surface);
+  }
+}
+
+.page-header__inner {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  max-width: var(--page-max);
+  min-height: var(--header-h);
+  margin: 0 auto;
+  padding: var(--s2) var(--s5);
+}
+
+.page-header__title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: var(--fs-title);
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.page-header__meta {
+  flex: 0 0 auto;
+  color: var(--fg-secondary);
+  font-size: var(--fs-caption);
+  white-space: nowrap;
+}
+
+/* The head sha is an identifier, so it is set in the monospace face and in
+   tabular figures -- it changes on a force-push and the eye should catch
+   that it changed, not have to read it. */
+.page-header__sha {
+  flex: 0 0 auto;
+  padding: 2px var(--s2);
+  border: 1px solid var(--separator);
+  border-radius: 999px;
+  background: var(--bg-sunken);
+  color: var(--fg-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.page-header form {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.pr-body {
+  width: 100%;
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: var(--s4) var(--s5) var(--s12);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+/* Layout, Adaptability: two columns while there is room for both, one
+   column when there is not. The rail collapses to nothing when it holds
+   nothing -- see .review-rail:empty -- so a review with no outdated threads
+   gives the diff the whole width. */
+.review {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--s3) var(--s5);
+}
+
+.review-main {
+  grid-column: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.review-rail {
+  grid-column: 2;
+  width: min(23rem, 30vw);
+  position: sticky;
+  top: calc(var(--header-h) + var(--s3));
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  max-height: calc(100dvh - var(--header-h) - var(--s6));
+  overflow-y: auto;
+}
+
+.review-rail:empty {
+  display: none;
+}
+
+@media (max-width: 68rem) {
+  .review {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .review-main,
+  .review-rail {
+    grid-column: 1;
+  }
+
+  .review-rail {
+    position: static;
+    width: auto;
+    max-height: none;
+  }
+}
+
+/* -------------------------------------------------------------------------
+   6. PRESENCE
+   Collaboration and sharing: presence is context, not content. It is set at
+   the smallest size in the app and carries no colour of its own except the
+   per-reviewer dot.
+   ------------------------------------------------------------------------- */
+
+.presence {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  min-height: 26px;
+}
+
+.presence__list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.presence__person {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s1);
+  padding: 2px var(--s2) 2px var(--s1);
+  border: 1px solid var(--separator);
+  border-radius: 999px;
+  background: var(--bg-surface);
+  color: var(--fg-secondary);
+  font-size: var(--fs-micro);
+  line-height: 1.6;
+}
+
+/* Accessibility, Vision: "Convey information with more than color alone."
+   The dot's hue only distinguishes reviewers from each other -- the name
+   next to it is what identifies them, so no information lives in the hue. */
+.presence__person::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  margin-left: 2px;
+  border-radius: 50%;
+  background: hsl(var(--dot-hue, 220) 62% 48%);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08) inset;
+}
+
+.presence__name {
+  color: var(--fg-primary);
+  font-weight: 500;
+}
+
+.presence__you {
+  color: var(--fg-tertiary);
+}
+
+.presence__cursor {
+  font-family: var(--font-mono);
+  color: var(--fg-tertiary);
+}
+
+.presence__status {
+  padding: 2px var(--s2);
+  border-radius: 999px;
+  background: var(--notice-bg);
+  color: var(--notice-fg);
+  font-size: var(--fs-micro);
+  font-weight: 500;
+}
+
+/* -------------------------------------------------------------------------
+   7. AI PANEL
+   Generative AI, Transparency: "Communicate where your app uses AI." The
+   panel is visually set apart from reviewer content -- dashed rule, muted
+   surface -- so a model's reading order is never mistaken for a colleague's
+   review.
+   ------------------------------------------------------------------------- */
+
+.ai-panel {
+  padding: var(--s4);
+  border: 1px dashed var(--separator-strong);
+  border-radius: var(--radius-lg);
+  background: var(--bg-sunken);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.ai-panel__title {
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--fg-secondary);
+  text-transform: uppercase;
+}
+
+.ai-panel__disclaimer {
+  color: var(--fg-tertiary);
+  font-size: var(--fs-micro);
+}
+
+.ai-panel__summary {
+  color: var(--fg-primary);
+  font-size: var(--fs-body);
+  line-height: 1.55;
+}
+
+.ai-panel__flags {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  margin-top: var(--s1);
+}
+
+.ai-panel__flag {
+  font-size: var(--fs-caption);
+  color: var(--fg-secondary);
+}
+
+.ai-panel__flag strong {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  color: var(--fg-primary);
+}
+
+/* -------------------------------------------------------------------------
+   8. DIFF
+   The diff is the page: it gets the surface, the full width, and the only
+   monospace text in the app.
+   ------------------------------------------------------------------------- */
+
+.diff-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+}
+
+.diff-toolbar {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* A segmented control: one shape, one selected state, driven entirely by
+   aria-pressed so the visual and the accessibility tree cannot drift. */
+.segmented {
+  display: inline-flex;
+  padding: 2px;
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+}
+
+.segmented button {
+  min-height: 24px;
+  padding: 0 var(--s3);
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--fg-secondary);
+  font: inherit;
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
+}
+
+.segmented button:hover[aria-pressed="false"] {
+  color: var(--fg-primary);
+}
+
+.segmented button[aria-pressed="true"] {
+  background: var(--bg-surface);
+  color: var(--fg-primary);
+  box-shadow: var(--shadow-card);
+}
+
+.file {
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-card);
+  overflow: clip;
+}
+
+.file__path {
+  position: sticky;
+  top: var(--header-h);
+  z-index: 10;
+  padding: var(--s2) var(--s4);
+  border-bottom: 1px solid var(--separator);
+  background: var(--material-bar);
+  backdrop-filter: saturate(180%) blur(16px);
+  -webkit-backdrop-filter: saturate(180%) blur(16px);
+  font-family: var(--font-mono);
+  font-size: var(--fs-caption);
+  font-weight: 600;
+  color: var(--fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 68rem) {
+  .file__path {
+    position: static;
+  }
+}
+
+.file__note {
+  padding: var(--s4);
+  color: var(--fg-secondary);
+  font-size: var(--fs-caption);
+}
+
+.hunk + .hunk .hunk__header {
+  border-top: 1px solid var(--separator);
+}
+
+.hunk__header {
+  padding: var(--s1) var(--s4) var(--s1) calc(var(--w-anchor) + var(--w-ln));
+  border-bottom: 1px solid var(--separator);
+  background: var(--bg-sunken);
+  color: var(--fg-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  line-height: var(--lh-code);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+}
+
+/* One grid template shared by every kind of row -- new-side, removed, and
+   the old side of a split row -- so the gutters line up exactly, in both
+   views, whatever mix of rows a hunk contains.
+   Layout, Visual hierarchy: "Align components with one another." */
+.row,
+.removed-row,
+.split-cell--left {
+  display: grid;
+  grid-template-columns: var(--w-anchor) var(--w-ln) minmax(0, 1fr) auto;
+  align-items: start;
+  min-height: var(--lh-code);
+  border-left: 2px solid transparent;
+}
+
+.row > .anchor {
+  grid-column: 1;
+}
+
+.row > .ln,
+.removed-row > .ln,
+.split-cell--left > .ln {
+  grid-column: 2;
+}
+
+.row > .src,
+.removed-row > .src,
+.split-cell--left > .src {
+  grid-column: 3;
+}
+
+.row > .cursors {
+  grid-column: 4;
+}
+
+.ln {
+  padding-right: var(--s2);
+  color: var(--fg-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--lh-code);
+  text-align: right;
+  user-select: none;
+}
+
+.src {
+  display: block;
+  padding-right: var(--s4);
+  color: var(--fg-primary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-code);
+  line-height: var(--lh-code);
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  tab-size: 2;
+}
+
+/* Accessibility, Vision: "Convey information with more than color alone.
+   Offer visual indicators, like distinct shapes or icons, in addition to
+   color." Added and removed lines carry three independent signals -- this
+   +/- glyph, a background tint, and a coloured left rule -- so the diff
+   still reads correctly in greyscale or with any form of colour blindness. */
+.src::before {
+  content: " ";
+  display: inline-block;
+  width: 2ch;
+  font-weight: 600;
+  color: var(--fg-tertiary);
+}
+
+.row[data-kind="added"] {
+  background: var(--added-bg);
+  border-left-color: var(--added-rule);
+}
+
+.row[data-kind="added"] > .src::before {
+  content: "+";
+  color: var(--added-fg);
+}
+
+.removed-row,
+.split-cell--left[data-kind="removed"] {
+  background: var(--removed-bg);
+  border-left-color: var(--removed-rule);
+}
+
+.removed-row > .src::before,
+.split-cell--left[data-kind="removed"] > .src::before {
+  content: "-";
+  color: var(--removed-fg);
+}
+
+.row:hover {
+  background-color: var(--bg-hover);
+}
+
+.row[data-kind="added"]:hover,
+.row[data-kind="added"][data-selected="true"] {
+  background-color: color-mix(in srgb, var(--added-bg) 94%, var(--fg-primary));
+}
+
+/* Focus and selection: "use a highlight in a list or collection" -- the
+   whole row is highlighted, not just the control inside it. */
+.row[data-selected="true"] {
+  background-color: var(--bg-selected);
+  border-left-color: var(--accent);
+}
+
+/* The anchor control. Resting state is a tertiary glyph (3.9:1 against the
+   surface -- above the 3:1 floor for a non-text control); pointer or
+   keyboard focus fills it. It is never hidden: a control that only exists
+   on hover cannot be reached by keyboard and cannot be seen in a
+   screenshot. */
+.anchor {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: var(--lh-code);
+  margin-left: 3px;
+  padding: 0;
+  border: 1px solid var(--separator);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  line-height: 1;
+  cursor: pointer;
+  transition:
+    background var(--motion-fast) var(--motion-ease),
+    color var(--motion-fast) var(--motion-ease);
+}
+
+/* Accessibility, Mobility: the visible glyph is 20x20, at the desktop
+   minimum; this transparent extension brings the pointer target to 28x28,
+   the recommended size, without changing the row's height. */
+.anchor::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+}
+
+.row:hover > .anchor,
+.anchor:hover,
+.anchor:focus-visible,
+.row[data-selected="true"] > .anchor {
+  border-color: transparent;
+  background: var(--accent-fill);
+  color: #ffffff;
+}
+
+.cursors {
+  align-self: center;
+  margin-right: var(--s2);
+  padding: 0 var(--s2);
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+
+/* Split view. The two halves are one grid so the divider is a single line
+   down the middle of the file, and the thread stack spans both -- a comment
+   belongs to the line, not to one column of it. */
+.split-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+
+/* No `display` here: `.split-cell--left` takes its grid from the shared row
+   template above, and this rule would otherwise override it by source
+   order. */
+.split-cell {
+  min-width: 0;
+  min-height: var(--lh-code);
+}
+
+.split-cell--left {
+  border-right: 1px solid var(--separator);
+}
+
+.split-cell--right {
+  display: block;
+  border-left: 1px solid var(--separator);
+  margin-left: -1px;
+}
+
+.split-row > .thread-stack {
+  grid-column: 1 / -1;
+}
+
+/* -------------------------------------------------------------------------
+   9. THREADS
+   The product's thesis, made visible: a thread is drawn inside the same
+   wrapper as its line, indented to the code column, and joined to the row
+   above it by an accent rule. Nothing about a thread's position is a
+   guess -- if it is under a row, it belongs to that row.
+   ------------------------------------------------------------------------- */
+
+.thread-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  margin: 0 var(--s4) var(--s2) calc(var(--w-anchor) + var(--w-ln));
+  padding: var(--s2) 0 0 var(--s3);
+  border-left: 2px solid var(--accent);
+}
+
+/* :has() rather than a new prop or wrapper: a row with a thread under it is
+   marked as commented without widening DiffFileView's API or adding an
+   element between the row and the thread. */
+.row-wrap:has(> .thread-stack) > .row,
+.split-row:has(> .thread-stack) .row {
+  border-left-color: var(--accent);
+}
+
+.thread {
+  max-width: 46rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-card);
+}
+
+/* A resolved thread recedes but does not disappear -- reduced emphasis, not
+   hidden information. */
+.thread[data-resolved="true"] {
+  background: var(--bg-sunken);
+  box-shadow: none;
+}
+
+.thread__resolved {
+  align-self: flex-start;
+  padding: 1px var(--s2);
+  border-radius: 999px;
+  background: var(--added-bg);
+  color: var(--added-fg);
+  font-size: var(--fs-micro);
+  font-weight: 500;
+}
+
+.thread__comments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
+
+.comment {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.comment__author {
+  color: var(--fg-secondary);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+}
+
+.comment__body {
+  color: var(--fg-primary);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}
+
+.thread__reply {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--s2);
+}
+
+.thread__reply textarea {
+  min-height: 32px;
+  padding: var(--s1) var(--s2);
+  font-size: var(--fs-caption);
+}
+
+.thread__actions {
+  align-self: flex-end;
+}
+
+.composer {
+  max-width: 46rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s3);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-raised);
+}
+
+.composer__target {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--fg-secondary);
+}
+
+.composer__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--s2);
+}
+
+/* -------------------------------------------------------------------------
+   10. OUTDATED PANEL
+   Feedback: this is an answer, not an error. It uses the amber "attention"
+   rule rather than the red "something failed" one, states the reason in
+   full, and quotes the code the comment was written about so the reader can
+   judge it themselves.
+   ------------------------------------------------------------------------- */
+
+.outdated {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s3);
+  padding: var(--s4);
+  border: 1px solid color-mix(in srgb, var(--notice-rule) 55%, transparent);
+  border-top: 3px solid var(--notice-rule);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-card);
+}
+
+.outdated__title {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  font-size: var(--fs-heading);
+}
+
+.outdated__title::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 3px;
+  height: 1em;
+  border-radius: 2px;
+  background: var(--notice-rule);
+}
+
+.outdated__lead {
+  color: var(--fg-secondary);
+  font-size: var(--fs-caption);
+  line-height: 1.5;
+}
+
+.outdated__thread {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--separator);
+}
+
+.outdated__where {
+  font-family: var(--font-mono);
+  font-size: var(--fs-micro);
+  color: var(--fg-secondary);
+}
+
+/* The quoted context is history, not the current file: it is set on the
+   sunken surface with a dashed rule so it can never be mistaken for a live
+   diff row. */
+.outdated__quote {
+  margin: 0;
+  padding: var(--s2) var(--s3);
+  border: 1px dashed var(--separator-strong);
+  border-radius: var(--radius-sm);
+  background: var(--bg-sunken);
+  color: var(--fg-secondary);
+  font-size: var(--fs-micro);
+  line-height: var(--lh-code);
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
+.outdated__comments {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+}
