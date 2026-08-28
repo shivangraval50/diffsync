@@ -1,5 +1,5 @@
 import { relocate, type AnchorTarget } from "@diffsync/anchor";
-import type { PlacedThread, ThreadsState } from "./types.js";
+import type { PlacedThread, ThreadsState } from "./types";
 
 /**
  * Compute, for every thread, where it points in the current revision of the

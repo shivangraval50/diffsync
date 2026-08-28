@@ -14,7 +14,7 @@ export const PROTOCOL_VERSION = 1;
 export const NICKNAME_MAX_LENGTH = 32;
 export const COMMENT_MAX_LENGTH = 2000;
 
-export { decodePrKey, encodePrKey } from "./prkey.js";
+export { decodePrKey, encodePrKey } from "./prkey";
 
 /** One human-readable name for a pull request, used in the Neon archive and
  *  on the home page. Shared rather than derived twice, so the archived label

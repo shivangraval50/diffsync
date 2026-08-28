@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { createAnchor, type AnchorTarget } from "@diffsync/anchor";
-import { applyEvent, emptyThreads } from "./reduce.js";
-import { placeThreads } from "./place.js";
-import type { ReviewEvent, ThreadsState } from "./types.js";
+import { applyEvent, emptyThreads } from "./reduce";
+import { placeThreads } from "./place";
+import type { ReviewEvent, ThreadsState } from "./types";
 
 const LINES = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"] as const;
 

@@ -1,8 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { createAnchor, relocate } from "@diffsync/anchor";
-import { parseUnifiedDiff } from "./parse.js";
-import { anchorTargets, toAnchorTarget } from "./target.js";
-import type { FileDiff, PullRequest } from "./types.js";
+import { parseUnifiedDiff } from "./parse";
+import { anchorTargets, toAnchorTarget } from "./target";
+import type { FileDiff, PullRequest } from "./types";
 
 function patchFile(path: string, blobSha: string, patch: string): FileDiff {
   return {

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
 import type { PrRef } from "@diffsync/diff";
-import { decodePrKey, encodePrKey } from "./prkey.js";
+import { decodePrKey, encodePrKey } from "./prkey";
 
 function payloadKey(payload: string): string {
   return btoa(payload).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, "");

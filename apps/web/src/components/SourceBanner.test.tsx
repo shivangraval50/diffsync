@@ -40,4 +40,16 @@ describe("SourceBanner", () => {
     expect(screen.getByRole("alert")).toHaveTextContent(/could not be found/iu);
     expect(screen.getByRole("alert")).not.toHaveTextContent(/quota/iu);
   });
+
+  it("distinguishes GitHub being unreachable from both a quota and a missing PR", () => {
+    // The third `reason` the schema allows (`sourceResultSchema`'s fallback
+    // variant has three, not two) -- an outage reads differently from "you
+    // used up the shared quota" or "that PR doesn't exist", and a visitor
+    // told the wrong one of the three would draw the wrong conclusion about
+    // whether retrying now would help.
+    render(<SourceBanner source={{ origin: "fallback", pr, reason: "unavailable" }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent(/could not be reached/iu);
+    expect(screen.getByRole("alert")).not.toHaveTextContent(/quota/iu);
+    expect(screen.getByRole("alert")).not.toHaveTextContent(/could not be found/iu);
+  });
 });

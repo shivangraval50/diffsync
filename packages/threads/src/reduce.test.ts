@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { Anchor } from "@diffsync/anchor";
-import { applyEvent, emptyThreads } from "./reduce.js";
-import type { Comment, ReviewEvent, ThreadsState } from "./types.js";
+import { applyEvent, emptyThreads } from "./reduce";
+import type { Comment, ReviewEvent, ThreadsState } from "./types";
 
 const anchor: Anchor = {
   filePath: "src/total.ts",

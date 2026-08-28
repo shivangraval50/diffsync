@@ -5,8 +5,8 @@ export type {
   FileStatus,
   PrRef,
   PullRequest,
-} from "./types.js";
-export { DiffParseError, parseUnifiedDiff } from "./parse.js";
-export { anchorTargets, toAnchorTarget } from "./target.js";
-export { toSplitRows } from "./split.js";
-export type { SplitCell, SplitRow } from "./split.js";
+} from "./types";
+export { DiffParseError, parseUnifiedDiff } from "./parse";
+export { anchorTargets, toAnchorTarget } from "./target";
+export { toSplitRows } from "./split";
+export type { SplitCell, SplitRow } from "./split";

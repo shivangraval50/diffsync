@@ -1,4 +1,4 @@
-import { CONTEXT_RADIUS, GAP, type Anchor, type AnchorTarget, type Window } from "./types.js";
+import { CONTEXT_RADIUS, GAP, type Anchor, type AnchorTarget, type Window } from "./types";
 
 /**
  * Trailing whitespace and carriage returns are normalized away because the

@@ -1,4 +1,4 @@
-import type { DiffHunk, DiffLine } from "./types.js";
+import type { DiffHunk, DiffLine } from "./types";
 
 export class DiffParseError extends Error {
   constructor(message: string) {

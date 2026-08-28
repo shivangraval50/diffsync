@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { LlmConfigError, selectProvider, type LlmProvider } from "@openbid/llm";
-import { ANCHOR_FORMAT_VERSION } from "./index.js";
+import { ANCHOR_FORMAT_VERSION } from "./index";
 
 describe("workspace wiring", () => {
   it("exposes an anchor format version", () => {

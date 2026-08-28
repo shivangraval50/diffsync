@@ -1,10 +1,10 @@
 import { parseUnifiedDiff, type FileDiff, type PullRequest } from "@diffsync/diff";
-import { authRefactor } from "./data/authRefactor.js";
-import { parserBugfix } from "./data/parserBugfix.js";
-import { docsTypo } from "./data/docsTypo.js";
-import type { Fixture, FixtureFile, FixtureRevision } from "./types.js";
+import { authRefactor } from "./data/authRefactor";
+import { parserBugfix } from "./data/parserBugfix";
+import { docsTypo } from "./data/docsTypo";
+import type { Fixture, FixtureFile, FixtureRevision } from "./types";
 
-export type { Fixture, FixtureFile, FixtureRevision } from "./types.js";
+export type { Fixture, FixtureFile, FixtureRevision } from "./types";
 
 /** Served whenever the GitHub path cannot be. A visitor must never face an
  *  empty app because strangers exhausted a shared quota. */

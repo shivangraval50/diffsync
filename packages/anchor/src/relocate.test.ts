@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { createAnchor } from "./fingerprint.js";
-import { relocate } from "./relocate.js";
-import type { Anchor, AnchorTarget } from "./types.js";
+import { createAnchor } from "./fingerprint";
+import { relocate } from "./relocate";
+import type { Anchor, AnchorTarget } from "./types";
 
 function target(
   filePath: string,

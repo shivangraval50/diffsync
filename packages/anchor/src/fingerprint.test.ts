@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { CONTEXT_RADIUS, GAP } from "./types.js";
-import { createAnchor, fingerprint, normalizeLine, windowAt } from "./fingerprint.js";
+import { CONTEXT_RADIUS, GAP } from "./types";
+import { createAnchor, fingerprint, normalizeLine, windowAt } from "./fingerprint";
 
 function linesOf(start: number, texts: readonly string[]): Map<number, string> {
   return new Map(texts.map((text, i) => [start + i, text]));

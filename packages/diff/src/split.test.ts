@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { parseUnifiedDiff } from "./parse.js";
-import { toSplitRows } from "./split.js";
+import { parseUnifiedDiff } from "./parse";
+import { toSplitRows } from "./split";
 
 describe("toSplitRows", () => {
   it("puts a context line on both sides with its own line numbers", () => {

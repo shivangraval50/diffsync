@@ -11,7 +11,7 @@ import {
   pullRequestSchema,
   type ClientMessage,
   type ServerMessage,
-} from "./index.js";
+} from "./index";
 
 const anchor: Anchor = {
   filePath: "src/total.ts",

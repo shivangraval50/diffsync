@@ -1,6 +1,6 @@
-import { fingerprint, windowAt } from "./fingerprint.js";
-import { GAP } from "./types.js";
-import type { Anchor, AnchorTarget, Relocation } from "./types.js";
+import { fingerprint, windowAt } from "./fingerprint";
+import { GAP } from "./types";
+import type { Anchor, AnchorTarget, Relocation } from "./types";
 
 function sameWindow(a: readonly string[], b: readonly string[]): boolean {
   if (a.length !== b.length) return false;

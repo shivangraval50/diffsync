@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import fc from "fast-check";
-import { createAnchor, windowAt } from "./fingerprint.js";
-import { relocate } from "./relocate.js";
-import { CONTEXT_RADIUS, GAP } from "./types.js";
-import type { AnchorTarget } from "./types.js";
+import { createAnchor, windowAt } from "./fingerprint";
+import { relocate } from "./relocate";
+import { CONTEXT_RADIUS, GAP } from "./types";
+import type { AnchorTarget } from "./types";
 
 const PATH = "src/subject.ts";
 

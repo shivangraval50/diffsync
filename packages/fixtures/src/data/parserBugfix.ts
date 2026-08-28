@@ -1,4 +1,4 @@
-import type { Fixture } from "../types.js";
+import type { Fixture } from "../types";
 
 export const parserBugfix: Fixture = {
   slug: "parser-bugfix",

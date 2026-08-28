@@ -1,5 +1,5 @@
 import type { AnchorTarget } from "@diffsync/anchor";
-import type { FileDiff, PullRequest } from "./types.js";
+import type { FileDiff, PullRequest } from "./types";
 
 /**
  * The new-side lines this file exposes: context and additions, keyed by their

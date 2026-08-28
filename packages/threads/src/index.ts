@@ -1,3 +1,3 @@
-export type { Comment, PlacedThread, ReviewEvent, Thread, ThreadsState } from "./types.js";
-export { applyEvent, emptyThreads } from "./reduce.js";
-export { placeThreads } from "./place.js";
+export type { Comment, PlacedThread, ReviewEvent, Thread, ThreadsState } from "./types";
+export { applyEvent, emptyThreads } from "./reduce";
+export { placeThreads } from "./place";

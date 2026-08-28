@@ -1,4 +1,4 @@
-import type { Fixture } from "../types.js";
+import type { Fixture } from "../types";
 
 /**
  * The demo fixture, and the fallback whenever the GitHub path is unavailable.

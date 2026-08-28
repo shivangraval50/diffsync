@@ -1,4 +1,4 @@
-import type { Comment, ReviewEvent, Thread, ThreadsState } from "./types.js";
+import type { Comment, ReviewEvent, Thread, ThreadsState } from "./types";
 
 export function emptyThreads(): ThreadsState {
   return { threads: {}, order: [] };

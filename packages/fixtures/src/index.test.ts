@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { createAnchor, relocate } from "@diffsync/anchor";
 import { anchorTargets, parseUnifiedDiff } from "@diffsync/diff";
-import { FALLBACK_FIXTURE_SLUG, fixturePullRequest, getFixture, listFixtures } from "./index.js";
+import { FALLBACK_FIXTURE_SLUG, fixturePullRequest, getFixture, listFixtures } from "./index";
 
 describe("the fixture catalogue", () => {
   it("lists every fixture with a unique slug", () => {

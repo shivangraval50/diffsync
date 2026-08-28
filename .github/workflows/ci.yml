@@ -21,6 +21,7 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm run typecheck --workspace @diffsync/pr-do
+      - run: npm run typecheck --workspace @diffsync/web
       - run: npm test
       - run: npm run build --workspace @diffsync/web
         env:

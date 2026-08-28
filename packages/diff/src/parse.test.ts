@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { DiffParseError, parseUnifiedDiff } from "./parse.js";
+import { DiffParseError, parseUnifiedDiff } from "./parse";
 
 const PATCH = [
   "@@ -10,6 +10,7 @@ function total(items) {",
