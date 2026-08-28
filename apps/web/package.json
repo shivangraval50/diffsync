@@ -1,0 +1,5 @@
+{
+  "name": "@diffsync/web",
+  "private": true,
+  "type": "module"
+}

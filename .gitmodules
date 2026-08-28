@@ -1,0 +1,3 @@
+[submodule "vendor/openbid"]
+	path = vendor/openbid
+	url = https://github.com/shivangraval50/openbid.git

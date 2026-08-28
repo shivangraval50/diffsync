@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "baseUrl": ".",
+    "paths": {
+      "@diffsync/*": ["packages/*/src"]
+    }
+  },
+  "include": ["packages/anchor/src"]
+}
