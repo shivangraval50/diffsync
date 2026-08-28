@@ -1,0 +1,9 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["@cloudflare/workers-types", "@cloudflare/vitest-pool-workers"],
+    "baseUrl": "../..",
+    "paths": { "@diffsync/*": ["packages/*/src"] }
+  },
+  "include": ["src", "test"]
+}

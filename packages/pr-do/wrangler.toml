@@ -1,0 +1,31 @@
+name = "diffsync-prs"
+main = "src/index.ts"
+compatibility_date = "2026-03-10"
+
+[[durable_objects.bindings]]
+name = "PRS"
+class_name = "PrDO"
+
+# NOT YET APPLIED -- Task 20 applies this on the first deploy.
+#
+# This is the COMPLETE class list for this project: PrDO is the only Durable
+# Object class, and there is no second class planned (the home page's
+# "recently reviewed" list is Neon metadata, not a registry DO).
+#
+# Once this has been deployed once, this block is FROZEN. Cloudflare
+# migrations are append-only after they are applied: adding a class later must
+# go in a NEW [[migrations]] block with a new tag (v2, v3, ...). Editing "v1"
+# after the fact desynchronises Cloudflare's record of applied migrations from
+# this file, and the deploy then either fails or succeeds against the wrong
+# assumption.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["PrDO"]
+
+# DATABASE_URL is deliberately NOT declared here as a [vars] entry. A plaintext
+# [vars] value takes precedence over a Workers *secret* of the same name at
+# deploy time, so even an empty placeholder would silently reset the real
+# credential to "" on every `wrangler deploy`, breaking archiving in production
+# with no error and no failing test. Set it once with:
+#   npx wrangler secret put DATABASE_URL
+# For local dev put it in a gitignored `.dev.vars` file instead.
