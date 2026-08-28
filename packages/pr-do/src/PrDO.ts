@@ -1,7 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
 import { createAnchor, type Anchor } from "@diffsync/anchor";
 import { toAnchorTarget, type PullRequest } from "@diffsync/diff";
-import { fixturePullRequest, FALLBACK_FIXTURE_SLUG } from "@diffsync/fixtures";
+import {
+  fixturePullRequest,
+  fixtureRevisionCount,
+  FALLBACK_FIXTURE_SLUG,
+} from "@diffsync/fixtures";
 import {
   decodePrKey,
   encode,
@@ -12,6 +16,7 @@ import {
   type SourceResult,
 } from "@diffsync/protocol";
 import { applyEvent, emptyThreads, type ReviewEvent, type ThreadsState } from "@diffsync/threads";
+import { fetchGithubPr } from "./github.js";
 import {
   ACTION_CAPACITY,
   ACTION_WINDOW_MS,
@@ -54,7 +59,31 @@ export function shouldReplay(lastSeenSeq: number, latestSeq: number, threshold: 
 
 export class PrDO extends DurableObject {
   private cachedThreads: ThreadsState | null = null;
+
+  /**
+   * The most recently resolved pull request, of ANY origin -- including
+   * "fallback". Read synchronously by `currentSource()` (see
+   * `webSocketMessage`) and by `resolveSource` below. Never awaited on: every
+   * write to this field happens at the end of an already-resolved async
+   * function, never mid-await, so a synchronous read of it is never torn.
+   */
   private cachedSource: SourceResult | null = null;
+
+  /**
+   * Coalesces concurrent callers of `loadSource` (e.g. two `/ws` handshakes
+   * racing a cold cache) onto the one fetch already in flight, rather than
+   * spending a second request from the 60-per-hour quota every visitor
+   * shares.
+   */
+  private sourceLoad: Promise<SourceResult | null> | null = null;
+
+  /**
+   * Production always uses the real client. Tests replace this through
+   * `runInDurableObject`, because the alternative -- letting the suite reach
+   * api.github.com -- would make the rate-limit and fallback tests depend on a
+   * shared, exhaustible, third-party quota.
+   */
+  private fetchPr: typeof fetchGithubPr = fetchGithubPr;
 
   constructor(ctx: DurableObjectState, env: PrEnv) {
     super(ctx, env as never);
@@ -74,36 +103,106 @@ export class PrDO extends DurableObject {
   }
 
   /**
-   * The pull request this object is about. Task 11 replaces the GitHub branch
-   * with a real fetch plus a cache; until then a GitHub key falls back to the
-   * seeded fixture, which is already the correct behaviour when GitHub cannot
-   * be reached.
+   * The pull request this object is about, resolved (and possibly fetched
+   * from GitHub) if necessary. Called ONLY from `fetch()` -- the `/source`
+   * and `/ws` branches below -- never from `webSocketMessage`. That split is
+   * deliberate: this function is allowed to make a real, slow, occasionally
+   * failing network call, and the two places that call it are exactly the
+   * two places where nothing else can be racing it yet (no socket exists
+   * before `/ws` returns one; `/source` is a plain one-shot HTTP response).
+   * `webSocketMessage`, which DOES run concurrently with itself once a
+   * socket is live, uses `currentSource()` instead -- a synchronous read
+   * that never awaits a fetch. See the comment there for why that split is
+   * load-bearing, not just tidy.
+   *
+   * A `fallback` result is deliberately treated as "not resolved": it is
+   * kept on `this.cachedSource` (so `currentSource()` has something to serve
+   * meanwhile) but never persisted, and this function does not short-circuit
+   * on it. The next `/source` view or `/ws` connection attempt tries GitHub
+   * again -- required because the shared 60-per-hour quota resets in an
+   * hour, long before this object is likely to be evicted.
    */
   protected async resolveSource(key: string): Promise<SourceResult | null> {
-    if (this.cachedSource !== null) return this.cachedSource;
-
-    const cached = getMeta(this.ctx.storage.sql, "source");
-    if (cached !== null) {
-      this.cachedSource = JSON.parse(cached) as SourceResult;
+    if (this.cachedSource !== null && this.cachedSource.origin !== "fallback") {
       return this.cachedSource;
     }
 
+    const persisted = getMeta(this.ctx.storage.sql, "source");
+    if (persisted !== null) {
+      this.cachedSource = JSON.parse(persisted) as SourceResult;
+      return this.cachedSource;
+    }
+
+    return this.loadSource(key);
+  }
+
+  /**
+   * Resolve the pull request from its true source, replacing anything
+   * cached, and coalescing concurrent callers onto one attempt.
+   */
+  private loadSource(key: string): Promise<SourceResult | null> {
+    if (this.sourceLoad !== null) return this.sourceLoad;
+    const promise = this.doLoadSource(key).finally(() => {
+      this.sourceLoad = null;
+    });
+    this.sourceLoad = promise;
+    return promise;
+  }
+
+  private async doLoadSource(key: string): Promise<SourceResult | null> {
     const ref = decodePrKey(key);
     if (ref === null) return null;
 
-    let result: SourceResult | null = null;
     if (ref.kind === "fixture") {
       const pr = fixturePullRequest(ref.slug, ref.revision);
-      result = pr === null ? null : { origin: "fixture", pr };
-    } else {
-      const pr = fixturePullRequest(FALLBACK_FIXTURE_SLUG, 1);
-      result = pr === null ? null : { origin: "fallback", pr, reason: "unavailable" };
+      if (pr === null) return null;
+      const result: SourceResult = { origin: "fixture", pr };
+      this.cacheSource(result);
+      return result;
     }
 
-    if (result === null) return null;
+    // `ref` came out of `decodePrKey`, whose `isSafeName` guard rejects "/",
+    // ".", and ".." for `owner` and `repo` -- the traversal guard that makes
+    // it safe for `fetchGithubPr` to interpolate these into a request URL.
+    const fetched = await this.fetchPr({ owner: ref.owner, repo: ref.repo, number: ref.number });
+    if (fetched.kind === "ok") {
+      const result: SourceResult = { origin: "github", pr: fetched.pr, fetchedAtMs: Date.now() };
+      this.cacheSource(result);
+      return result;
+    }
+
+    const fallbackPr = fixturePullRequest(FALLBACK_FIXTURE_SLUG, 1);
+    if (fallbackPr === null) return null;
+    const fallback: SourceResult = { origin: "fallback", pr: fallbackPr, reason: fetched.kind };
+    // Held on `this.cachedSource` (see its own docstring) but never written
+    // to storage -- caching a rate-limit outcome there would keep serving
+    // the sample pull request for as long as this object lives, long after
+    // the shared quota reset an hour later.
+    this.cachedSource = fallback;
+    return fallback;
+  }
+
+  private cacheSource(result: SourceResult): void {
     putMeta(this.ctx.storage.sql, "source", JSON.stringify(result));
     this.cachedSource = result;
-    return result;
+  }
+
+  /**
+   * The synchronous counterpart to `resolveSource`, for `webSocketMessage`
+   * only. Contains no `await` at all: a plain field read, falling back to a
+   * plain (synchronous) SQL read for a socket whose Durable Object just woke
+   * from hibernation with an empty `cachedSource`. Never attempts a fetch --
+   * that is the whole point. If GitHub is being retried in the background
+   * (another connection's fresh `resolveSource` call) this may serve a
+   * `fallback` a beat longer than strictly necessary, which is a fine trade
+   * for never blocking a live message on a network call.
+   */
+  private currentSource(): SourceResult | null {
+    if (this.cachedSource !== null) return this.cachedSource;
+    const persisted = getMeta(this.ctx.storage.sql, "source");
+    if (persisted === null) return null;
+    this.cachedSource = JSON.parse(persisted) as SourceResult;
+    return this.cachedSource;
   }
 
   private send(ws: WebSocket, msg: ServerMessage): void {
@@ -175,6 +274,38 @@ export class PrDO extends DurableObject {
     const key = url.pathname.split("/")[2] ?? "";
     putMeta(this.ctx.storage.sql, "prKey", key);
 
+    if (request.method === "POST" && url.pathname.endsWith("/refresh")) {
+      const ref = decodePrKey(key);
+      if (ref === null) return new Response("no such pull request", { status: 404 });
+
+      if (ref.kind === "fixture") {
+        const body = (await request.json().catch(() => ({}))) as { revision?: unknown };
+        const revision = typeof body.revision === "number" ? body.revision : ref.revision;
+        if (revision < 1 || revision > fixtureRevisionCount(ref.slug)) {
+          return new Response("no such revision", { status: 400 });
+        }
+        const pr = fixturePullRequest(ref.slug, revision);
+        if (pr === null) return new Response("no such revision", { status: 400 });
+        // Models a force-push: same pull request, same comment log, new head.
+        this.cacheSource({ origin: "fixture", pr });
+      } else {
+        this.cachedSource = null;
+        this.ctx.storage.sql.exec("DELETE FROM meta WHERE k = 'source'");
+        const reloaded = await this.loadSource(key);
+        if (reloaded === null) return new Response("no such pull request", { status: 404 });
+      }
+
+      const current = this.cachedSource;
+      if (current !== null) {
+        // Everyone looking at this pull request needs to reload the diff, or
+        // half the room would be commenting against a revision that no
+        // longer exists and every one of those comments would be rejected as
+        // stale.
+        this.broadcast({ t: "sourceChanged", headSha: current.pr.headSha });
+      }
+      return new Response(null, { status: 200 });
+    }
+
     if (url.pathname.endsWith("/source")) {
       const source = await this.resolveSource(key);
       if (source === null) return new Response("no such pull request", { status: 404 });
@@ -182,6 +313,11 @@ export class PrDO extends DurableObject {
     }
 
     if (url.pathname.endsWith("/ws")) {
+      // Resolved here, before the socket exists -- possibly with a real,
+      // slow, occasionally-failing fetch to GitHub. That is deliberate: it
+      // means no message can ever arrive on this socket while its source is
+      // still being resolved, because the client has no socket to send one
+      // on until this call returns. See `resolveSource`'s docstring.
       const source = await this.resolveSource(key);
       if (source === null) return new Response("no such pull request", { status: 404 });
       const pair = new WebSocketPair();
@@ -205,7 +341,16 @@ export class PrDO extends DurableObject {
       return;
     }
 
-    const source = await this.resolveSource(this.prKey());
+    // `currentSource()`, not `resolveSource()`: this handler must never
+    // await a fetch. `resolveSource` is real, possibly-slow network I/O now
+    // (Task 11), and once ANY `await` sits inside `webSocketMessage`, a
+    // second invocation for this same socket -- fired before the first
+    // finishes, exactly the shape of the two tests below -- can run its own
+    // synchronous work while the first is still parked. `currentSource()` is
+    // a plain field read (falling back to a synchronous SQL read); nothing
+    // below this line ever awaits, which is what keeps everything after it
+    // atomic with respect to every OTHER invocation of this handler.
+    const source = this.currentSource();
     if (source === null) {
       ws.close(1011, "pull request unavailable");
       return;
@@ -278,9 +423,9 @@ export class PrDO extends DurableObject {
     // is allowed: a flood must cost no anchor verification, and a token spent
     // on a rejected action must still count or the limit is not a limit. No
     // `await` sits between this read of `attachment` and `commit()` below --
-    // the first (and only) `await` in this handler is the `resolveSource`
-    // call already completed above, so this check cannot reopen the
-    // interleaving window `commit()` depends on staying closed.
+    // in fact no `await` sits anywhere in this handler any more (see
+    // `currentSource()` above), so this check cannot reopen the interleaving
+    // window `commit()` depends on staying closed.
     const limit = takeToken(attachment.actions, Date.now(), ACTION_CAPACITY, ACTION_WINDOW_MS);
     ws.serializeAttachment({ ...attachment, actions: limit.bucket } satisfies Attachment);
     if (!limit.allowed) {

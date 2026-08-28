@@ -261,6 +261,7 @@ export const serverMessageSchema = z.discriminatedUnion("t", [
   z.object({ t: z.literal("ack"), clientSeq: seq, seq }),
   z.object({ t: z.literal("reject"), clientSeq: seq, reason: rejectReasonSchema }),
   z.object({ t: z.literal("pong"), clientTime: timestamp, serverTime: timestamp }),
+  z.object({ t: z.literal("sourceChanged"), headSha: z.string().min(1) }),
 ]);
 export type ServerMessage = z.infer<typeof serverMessageSchema>;
 

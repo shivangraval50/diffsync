@@ -161,6 +161,17 @@ describe("parseServerMessage", () => {
   });
 });
 
+describe("sourceChanged", () => {
+  it("round-trips a head sha", () => {
+    const msg = { t: "sourceChanged", headSha: "9f8e7d6" } as const;
+    expect(parseServerMessage(encode(msg))).toEqual(msg);
+  });
+
+  it("rejects an empty head sha", () => {
+    expect(() => parseServerMessage('{"t":"sourceChanged","headSha":""}')).toThrow();
+  });
+});
+
 describe("pullRequestSchema", () => {
   it("accepts a patch file and an omitted file in the same pull request", () => {
     const pr = {
