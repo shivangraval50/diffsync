@@ -38,9 +38,11 @@ thread's position and saying so is strictly cheaper than pointing at the wrong c
 
 ### How that is actually enforced
 
-An anchor is `(filePath, blobSha, line, fingerprint, context)`. The `context` is the
-seven lines centred on the anchored line (`CONTEXT_RADIUS = 3`), normalised and stored
-**verbatim**, alongside a 64-bit FNV-1a hash of them.
+An anchor is `(filePath, blobSha, line, fingerprint, context)`. The `context` is a
+seven-slot window centred on the anchored line — three either side, `CONTEXT_RADIUS = 3` —
+normalised and stored **verbatim**, alongside a 64-bit FNV-1a hash of it. A slot the diff
+does not expose holds a sentinel rather than being dropped, so the window is always
+exactly seven entries wide.
 
 `relocate` applies five rules, in order (`packages/anchor/src/relocate.ts`):
 
@@ -63,9 +65,9 @@ seven lines centred on the anchored line (`CONTEXT_RADIUS = 3`), normalised and 
    what the target contains.
 
 The window is a fixed-length tuple type, not `string[]`, so slicing or truncating one
-before hashing it is a compile error rather than a silently weaker fingerprint. `GAP` is the string
-`"\u0000GAP"` — a NUL byte cannot appear in a line that survived a unified diff, so an
-unknown slot can never compare equal to a known one.
+before hashing it is a compile error rather than a silently weaker fingerprint. That
+sentinel is `GAP`, the string `"\u0000GAP"` — a NUL byte cannot appear in a line that
+survived a unified diff, so an unknown slot can never compare equal to a known one.
 
 `packages/anchor` has no I/O and no platform imports. The same code runs in the Durable
 Object, in the browser, and under Node in the test suite.
