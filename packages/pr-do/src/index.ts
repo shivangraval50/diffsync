@@ -7,7 +7,7 @@ interface Env {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
-    const match = /^\/prs\/([A-Za-z0-9_-]+)\/(source|refresh|ws)$/u.exec(url.pathname);
+    const match = /^\/prs\/([A-Za-z0-9_-]+)\/(source|refresh|ws|ai)$/u.exec(url.pathname);
     if (match === null) return new Response("not found", { status: 404 });
 
     // The key IS the object name: one Durable Object per pull request, and

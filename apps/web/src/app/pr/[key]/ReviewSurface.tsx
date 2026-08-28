@@ -5,8 +5,9 @@ import { useStore } from "zustand";
 import { useRouter } from "next/navigation";
 import { createAnchor } from "@diffsync/anchor";
 import { anchorTargets } from "@diffsync/diff";
-import type { SourceResult } from "@diffsync/protocol";
+import { aiPassSchema, type AiPass, type SourceResult } from "@diffsync/protocol";
 import { placeThreads } from "@diffsync/threads";
+import { AiPanel } from "@/components/AiPanel";
 import { DiffPanel } from "@/components/DiffPanel";
 import { OutdatedPanel } from "@/components/OutdatedPanel";
 import { PresenceBar } from "@/components/PresenceBar";
@@ -41,6 +42,7 @@ export function ReviewSurface({
   const store = useMemo(() => createReviewStore(), [prKey]);
   const connection = useRef<PrConnection | null>(null);
   const [selected, setSelected] = useState<{ path: string; line: number } | null>(null);
+  const [aiPass, setAiPass] = useState<AiPass | null>(null);
   const router = useRouter();
 
   const threads = useStore(store, (s) => s.threads);
@@ -85,6 +87,24 @@ export function ReviewSurface({
     return () => conn.close();
   }, [prKey, nickname, persistent, store, router]);
 
+  useEffect(() => {
+    let cancelled = false;
+    // Decoration, fetched once per pull request: a failed request (no key
+    // configured server-side, a Worker blip, a malformed body) means no
+    // panel, never a broken review -- so this deliberately has no error
+    // state and no retry, only a `.catch` that leaves `aiPass` at `null`.
+    void fetch(`/api/ai/${prKey}`)
+      .then((res) => res.json())
+      .then((body: unknown) => {
+        const parsed = aiPassSchema.safeParse((body as { pass?: unknown } | null)?.pass ?? null);
+        if (!cancelled && parsed.success) setAiPass(parsed.data);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [prKey]);
+
   const cursorsByLine = useMemo(() => {
     const byFile = new Map<string, Map<number, string[]>>();
     for (const reviewer of presence) {
@@ -102,6 +122,7 @@ export function ReviewSurface({
   return (
     <div>
       <PresenceBar presence={presence} youAre={youAre} status={status} />
+      <AiPanel pass={aiPass} />
       <DiffPanel
         files={source.pr.files}
         selected={selected}

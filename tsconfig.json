@@ -12,6 +12,7 @@
     "packages/diff/src",
     "packages/threads/src",
     "packages/protocol/src",
-    "packages/fixtures/src"
+    "packages/fixtures/src",
+    "packages/ai/src"
   ]
 }

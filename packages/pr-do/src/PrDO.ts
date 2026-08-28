@@ -8,6 +8,7 @@ import {
   FALLBACK_FIXTURE_SLUG,
 } from "@diffsync/fixtures";
 import {
+  aiPassSchema,
   decodePrKey,
   encode,
   parseClientMessage,
@@ -407,6 +408,21 @@ export class PrDO extends DurableObject {
         this.broadcast({ t: "sourceChanged", headSha: current.pr.headSha });
       }
       return new Response(null, { status: 200 });
+    }
+
+    // A pure cache read/write, never a model call: `runAiPass` (network I/O)
+    // lives in the Vercel route (Task 18's `@diffsync/ai` consumer), not
+    // here. This object only ever stores and serves the JSON it is handed.
+    if (url.pathname.endsWith("/ai")) {
+      if (request.method === "PUT") {
+        const parsed = aiPassSchema.safeParse(await request.json().catch(() => null));
+        if (!parsed.success) return new Response("invalid pass", { status: 400 });
+        putMeta(this.ctx.storage.sql, "ai", JSON.stringify(parsed.data));
+        return new Response(null, { status: 200 });
+      }
+      const cached = getMeta(this.ctx.storage.sql, "ai");
+      if (cached === null) return new Response("no cached pass", { status: 404 });
+      return new Response(cached, { headers: { "content-type": "application/json" } });
     }
 
     if (url.pathname.endsWith("/source")) {

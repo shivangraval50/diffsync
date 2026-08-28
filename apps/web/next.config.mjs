@@ -1,11 +1,13 @@
 /** @type {import('next').NextConfig} */
 export default {
   transpilePackages: [
+    "@diffsync/ai",
     "@diffsync/anchor",
     "@diffsync/diff",
     "@diffsync/fixtures",
     "@diffsync/protocol",
     "@diffsync/threads",
+    "@openbid/llm",
   ],
   // The Playwright config drives the app at http://127.0.0.1:3000, and Next's
   // dev-only cross-origin guard does not treat that as the same origin as

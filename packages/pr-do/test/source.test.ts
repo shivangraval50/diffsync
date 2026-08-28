@@ -531,3 +531,42 @@ describe("fetch coalescing across two /ws connections racing one in-flight GitHu
     expect(bodies.sort()).toEqual(["from ada", "from grace"]);
   });
 });
+
+describe("the AI pass cache", () => {
+  it("404s before anything is cached, then returns what was stored", async () => {
+    const key = encodePrKey({ kind: "fixture", slug: "docs-typo", revision: 1 });
+    expect((await SELF.fetch(`https://do.test/prs/${key}/ai`)).status).toBe(404);
+
+    const pass = { summary: "A typo fix.", flags: [], generatedBy: "gemini", generatedAtMs: 5 };
+    const put = await SELF.fetch(`https://do.test/prs/${key}/ai`, {
+      method: "PUT",
+      body: JSON.stringify(pass),
+    });
+    expect(put.status).toBe(200);
+    expect(await (await SELF.fetch(`https://do.test/prs/${key}/ai`)).json()).toEqual(pass);
+  });
+
+  it("rejects a cached pass that is not the shape the UI expects", async () => {
+    // The cache is written by a Vercel route and read by a browser; storing
+    // an unvalidated blob here would push the failure into the UI.
+    const key = encodePrKey({ kind: "fixture", slug: "parser-bugfix", revision: 1 });
+    const put = await SELF.fetch(`https://do.test/prs/${key}/ai`, {
+      method: "PUT",
+      body: JSON.stringify({ summary: "" }),
+    });
+    expect(put.status).toBe(400);
+  });
+
+  it("does not 400 the surrounding room when a PUT body is not JSON at all", async () => {
+    // `request.json()` rejects (rather than resolving with `null`) on a body
+    // that fails to parse at all, which is a different failure mode than the
+    // "valid JSON, wrong shape" case above -- both must land on the same
+    // clean 400, never an unhandled rejection.
+    const key = encodePrKey({ kind: "fixture", slug: "docs-typo", revision: 1 });
+    const put = await SELF.fetch(`https://do.test/prs/${key}/ai`, {
+      method: "PUT",
+      body: "not json at all",
+    });
+    expect(put.status).toBe(400);
+  });
+});

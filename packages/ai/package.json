@@ -1,0 +1,14 @@
+{
+  "name": "@diffsync/ai",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@diffsync/diff": "*",
+    "@diffsync/protocol": "*",
+    "@openbid/llm": "*",
+    "zod": "^3.23.0"
+  }
+}
