@@ -22,3 +22,7 @@ jobs:
       - run: npm run typecheck
       - run: npm run typecheck --workspace @diffsync/pr-do
       - run: npm test
+      - run: npm run build --workspace @diffsync/web
+        env:
+          PRS_BASE_URL: http://127.0.0.1:8787
+          NEXT_PUBLIC_PRS_BASE_URL: http://127.0.0.1:8787
