@@ -3,9 +3,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 import { useRouter } from "next/navigation";
+import { createAnchor } from "@diffsync/anchor";
+import { anchorTargets } from "@diffsync/diff";
 import type { SourceResult } from "@diffsync/protocol";
+import { placeThreads } from "@diffsync/threads";
 import { DiffPanel } from "@/components/DiffPanel";
+import { OutdatedPanel } from "@/components/OutdatedPanel";
 import { PresenceBar } from "@/components/PresenceBar";
+import { RejectBanner } from "@/components/RejectBanner";
+import { ThreadCard } from "@/components/ThreadCard";
+import { ThreadComposer } from "@/components/ThreadComposer";
+import { layoutThreads } from "@/lib/threadLayout";
 import { createReviewStore } from "@/lib/reviewStore";
 import { connectPr, type PrConnection } from "@/lib/socket";
 
@@ -39,6 +47,19 @@ export function ReviewSurface({
   const presence = useStore(store, (s) => s.presence);
   const youAre = useStore(store, (s) => s.youAre);
   const status = useStore(store, (s) => s.status);
+  const lastReject = useStore(store, (s) => s.lastReject);
+
+  const clientSeq = useRef(0);
+  const nextClientSeq = (): number => {
+    clientSeq.current += 1;
+    return clientSeq.current;
+  };
+
+  // Recomputed on every render from the anchors and the CURRENT source.
+  // Nothing about a thread's position is cached, so a thread cannot be drawn
+  // at a position that was true for a revision this page is not showing.
+  const targets = useMemo(() => anchorTargets(source.pr), [source]);
+  const layout = useMemo(() => layoutThreads(placeThreads(threads, targets)), [threads, targets]);
 
   useEffect(() => {
     const base = process.env.NEXT_PUBLIC_PRS_BASE_URL ?? "";
@@ -83,15 +104,76 @@ export function ReviewSurface({
       <PresenceBar presence={presence} youAre={youAre} status={status} />
       <DiffPanel
         files={source.pr.files}
-        selectedLine={selected?.line ?? null}
+        selected={selected}
         cursorsByLine={cursorsByLine}
-        renderBelow={() => null}
+        renderBelow={(path, line) => {
+          const here = layout.located.get(path)?.get(line) ?? [];
+          const composing = selected !== null && selected.path === path && selected.line === line;
+          if (here.length === 0 && !composing) return null;
+          return (
+            <div>
+              {here.map(({ thread }) => (
+                <ThreadCard
+                  key={thread.threadId}
+                  thread={thread}
+                  onReply={(body) =>
+                    connection.current?.send({
+                      t: "reply",
+                      clientSeq: nextClientSeq(),
+                      threadId: thread.threadId,
+                      body,
+                    })
+                  }
+                  onResolve={() =>
+                    connection.current?.send({
+                      t: "resolve",
+                      clientSeq: nextClientSeq(),
+                      threadId: thread.threadId,
+                    })
+                  }
+                  onUnresolve={() =>
+                    connection.current?.send({
+                      t: "unresolve",
+                      clientSeq: nextClientSeq(),
+                      threadId: thread.threadId,
+                    })
+                  }
+                />
+              ))}
+              {composing ? (
+                <ThreadComposer
+                  filePath={path}
+                  line={line}
+                  onCancel={() => setSelected(null)}
+                  onSubmit={(body) => {
+                    const target = targets.get(path);
+                    if (target === undefined) return;
+                    // Built from the source this page is rendering, so the
+                    // Durable Object's own recomputation either matches it or
+                    // rejects it as STALE_ANCHOR. The reviewer's position is
+                    // never inferred server-side from a bare line number.
+                    const anchor = createAnchor(target, line);
+                    if (anchor === null) return;
+                    connection.current?.send({
+                      t: "openThread",
+                      clientSeq: nextClientSeq(),
+                      anchor,
+                      body,
+                    });
+                    setSelected(null);
+                  }}
+                />
+              ) : null}
+            </div>
+          );
+        }}
         onLineSelect={(path, line) => {
           setSelected({ path, line });
           connection.current?.send({ t: "cursor", filePath: path, line });
         }}
       />
-      <p data-testid="thread-count">{threads.order.length}</p>
+      <RejectBanner reject={lastReject} />
+      <OutdatedPanel threads={layout.outdated} />
     </div>
   );
 }

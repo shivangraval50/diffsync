@@ -30,7 +30,7 @@ describe("DiffPanel", () => {
     render(
       <DiffPanel
         files={FILES}
-        selectedLine={null}
+        selected={null}
         cursorsByLine={NO_CURSORS}
         renderBelow={() => null}
         onLineSelect={vi.fn()}
@@ -46,7 +46,7 @@ describe("DiffPanel", () => {
     render(
       <DiffPanel
         files={FILES}
-        selectedLine={null}
+        selected={null}
         cursorsByLine={NO_CURSORS}
         renderBelow={(path, line) =>
           path === "src/a.ts" && line === 2 ? <p>thread on line 2</p> : null
@@ -74,7 +74,7 @@ describe("DiffPanel", () => {
     render(
       <DiffPanel
         files={FILES}
-        selectedLine={null}
+        selected={null}
         cursorsByLine={NO_CURSORS}
         renderBelow={() => null}
         onLineSelect={vi.fn()}
@@ -90,7 +90,7 @@ describe("DiffPanel", () => {
     render(
       <DiffPanel
         files={FILES}
-        selectedLine={null}
+        selected={null}
         cursorsByLine={NO_CURSORS}
         renderBelow={() => null}
         onLineSelect={onLineSelect}
@@ -110,7 +110,7 @@ describe("DiffPanel", () => {
     render(
       <DiffPanel
         files={FILES}
-        selectedLine={null}
+        selected={null}
         cursorsByLine={cursors}
         renderBelow={() => null}
         onLineSelect={vi.fn()}
@@ -118,5 +118,24 @@ describe("DiffPanel", () => {
     );
     expect(screen.getByTestId("cursors-src/b.ts-1")).toHaveTextContent("grace");
     expect(screen.queryByTestId("cursors-src/a.ts-1")).toBeNull();
+  });
+
+  it("scopes the selected line to the file it belongs to, not to every file with the same line number", () => {
+    // `selected` names one (path, line) pair. Before this fix, DiffPanel
+    // forwarded a bare line number to every file's DiffFileView, so
+    // selecting src/a.ts's line 1 also lit up src/b.ts's unrelated line 1 --
+    // two different files that happen to share a line number are not the
+    // same code, and a reviewer would see two rows highlighted for one click.
+    render(
+      <DiffPanel
+        files={FILES}
+        selected={{ path: "src/a.ts", line: 1 }}
+        cursorsByLine={NO_CURSORS}
+        renderBelow={() => null}
+        onLineSelect={vi.fn()}
+      />
+    );
+    expect(screen.getByTestId("line-src/a.ts-1")).toHaveAttribute("data-selected", "true");
+    expect(screen.getByTestId("line-src/b.ts-1")).toHaveAttribute("data-selected", "false");
   });
 });

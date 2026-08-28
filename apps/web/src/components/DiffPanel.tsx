@@ -6,7 +6,16 @@ import { DiffFileView, type DiffViewMode } from "./DiffFileView";
 
 export interface DiffPanelProps {
   files: FileDiff[];
-  selectedLine: number | null;
+  /**
+   * The one (path, line) pair currently selected across the whole panel, or
+   * null. A bare `number` here -- the shape this prop started as -- cannot
+   * name which file it belongs to, so every file that happened to expose the
+   * same new-side line number would show it as selected too: two different
+   * files sharing line 1 is common, not an edge case. Scoping happens in
+   * this component (below), not in `DiffFileView`, which only ever sees the
+   * line number that applies to the one file it renders.
+   */
+  selected: { path: string; line: number } | null;
   cursorsByLine: ReadonlyMap<string, ReadonlyMap<number, readonly string[]>>;
   renderBelow: (path: string, line: number) => ReactNode;
   onLineSelect: (path: string, line: number) => void;
@@ -40,7 +49,7 @@ export function DiffPanel(props: DiffPanelProps): React.JSX.Element {
           key={file.path}
           file={file}
           view={view}
-          selectedLine={props.selectedLine}
+          selectedLine={props.selected !== null && props.selected.path === file.path ? props.selected.line : null}
           cursorsByLine={props.cursorsByLine.get(file.path) ?? EMPTY_CURSORS}
           renderBelow={(line) => props.renderBelow(file.path, line)}
           onLineSelect={(line) => props.onLineSelect(file.path, line)}
