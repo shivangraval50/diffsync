@@ -147,4 +147,50 @@ describe("relocate", () => {
 
     expect(relocate(anchor, after)).toEqual({ kind: "outdated" });
   });
+
+  it("reports outdated for a too-sparse context even when an exact match exists elsewhere (Fix round 1: reviewer-verified silent mis-anchor)", () => {
+    // Before MIN_DISTINCTIVE_SLOTS existed, this exact input produced a
+    // verified silent mis-anchor: {kind: "located", line: 50}. The anchor's
+    // window has only 2 of 7 slots real ([GAP,GAP,GAP,"foo","bar",GAP,GAP]),
+    // which matches every isolated "foo"/"bar" pair in the file -- not just
+    // the one the reviewer actually commented on. A version of relocate
+    // without the new precondition (rules 1-4 only) would scan, find the
+    // single candidate at line 50, and wrongly report it located. This is
+    // the failure the whole project exists to forbid, now closed at the
+    // precondition rather than left as a documented limitation.
+    const before = target("src/total.ts", "sha-a", 1, ["foo", "bar"]);
+    const anchor = anchorAt(before, 1);
+    const after = target("src/total.ts", "sha-b", 50, ["foo", "bar"]);
+
+    expect(relocate(anchor, after)).toEqual({ kind: "outdated" });
+  });
+
+  it("reports outdated for the same sparse-context collision mid-file, which splitting GAP into EOF-vs-unexposed sentinels would not fix", () => {
+    // The true occurrence sits at {10,11} -- nowhere near a file boundary.
+    // A fix that only distinguished "past EOF" GAP from "unexposed" GAP
+    // would not catch this: both {10,11} and {50,51} are surrounded by
+    // merely-unexposed neighbours, not EOF, so the two sentinel kinds would
+    // still coincide and the windows would still compare equal. This test
+    // is what rules out that alternative fix and justifies the threshold
+    // instead.
+    const before = target("src/total.ts", "sha-a", 10, ["foo", "bar"]);
+    const anchor = anchorAt(before, 10);
+    const after = target("src/total.ts", "sha-b", 50, ["foo", "bar"]);
+
+    expect(relocate(anchor, after)).toEqual({ kind: "outdated" });
+  });
+
+  it("still relocates when context meets the minimum distinctive threshold exactly (4 of 7 slots real)", () => {
+    // Pins the boundary itself: a window with exactly MIN_DISTINCTIVE_SLOTS
+    // real slots (the centre plus three of the six context slots) must
+    // still relocate when it uniquely matches. This is what proves the new
+    // precondition narrows relocation rather than disabling it -- a version
+    // that rejected anything short of a full 7-real-slot window would fail
+    // this test even though the match here is genuinely unambiguous.
+    const before = target("src/total.ts", "sha-a", 4, V1.slice(3, 7));
+    const anchor = anchorAt(before, 4);
+    const after = target("src/total.ts", "sha-b", 6, V1.slice(3, 7));
+
+    expect(relocate(anchor, after)).toEqual({ kind: "located", line: 6 });
+  });
 });
