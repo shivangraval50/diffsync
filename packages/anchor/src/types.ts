@@ -15,6 +15,38 @@ export const CONTEXT_RADIUS = 3;
  */
 export const GAP = "\u0000GAP";
 
+// --- Fixed-length window type -------------------------------------------
+//
+// `fingerprint`'s collision-safety argument (see its doc comment in
+// fingerprint.ts) only holds when every window it hashes has exactly
+// 2 * CONTEXT_RADIUS + 1 slots -- never fewer, never more. A window with a
+// slot dropped from either end can encode identically to an unrelated,
+// correctly shaped window that happens to contain the literal text "GAP"
+// next to a blank line. Rather than document that invariant and hope the
+// next reader (Task 3's relocate()) finds the comment, it is enforced as a
+// type: `Window` is a fixed-length tuple, its length derived from
+// CONTEXT_RADIUS rather than hand-written as "7", so slicing or truncating
+// one stops being a `Window` and becomes a compile error anywhere a
+// `Window` is required.
+
+type FixedTuple<N extends number, T, Acc extends readonly T[] = []> = Acc["length"] extends N
+  ? Acc
+  : FixedTuple<N, T, readonly [T, ...Acc]>;
+
+type RadiusSlots = FixedTuple<typeof CONTEXT_RADIUS, unknown>;
+type WindowSlots = readonly [...RadiusSlots, unknown, ...RadiusSlots];
+type MapToString<T extends readonly unknown[]> = { readonly [K in keyof T]: string };
+
+/**
+ * A fingerprint window: CONTEXT_RADIUS slots of context before the anchored
+ * line, the anchored line itself, and CONTEXT_RADIUS slots after it --
+ * 2 * CONTEXT_RADIUS + 1 slots, always. Produced only by `windowAt`; every
+ * other consumer (including `fingerprint`) receives an already-`Window`-
+ * shaped value, so a caller that slices or truncates one before hashing it
+ * gets a compile error instead of a silently weaker fingerprint.
+ */
+export type Window = MapToString<WindowSlots>;
+
 /**
  * Where a comment points. `context` is the normalized window itself, not just
  * its hash: `relocate` confirms every fingerprint match against it, so a hash

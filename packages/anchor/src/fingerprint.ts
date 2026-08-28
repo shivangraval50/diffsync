@@ -1,4 +1,4 @@
-import { CONTEXT_RADIUS, GAP, type Anchor, type AnchorTarget } from "./types.js";
+import { CONTEXT_RADIUS, GAP, type Anchor, type AnchorTarget, type Window } from "./types.js";
 
 /**
  * Trailing whitespace and carriage returns are normalized away because the
@@ -16,13 +16,19 @@ export function normalizeLine(text: string): string {
 }
 
 /** The normalized CONTEXT_RADIUS-radius window centred on `line`. */
-export function windowAt(lines: ReadonlyMap<number, string>, line: number): string[] {
+export function windowAt(lines: ReadonlyMap<number, string>, line: number): Window {
   const out: string[] = [];
   for (let n = line - CONTEXT_RADIUS; n <= line + CONTEXT_RADIUS; n += 1) {
     const text = lines.get(n);
     out.push(text === undefined ? GAP : normalizeLine(text));
   }
-  return out;
+  // The loop above always runs exactly 2 * CONTEXT_RADIUS + 1 times, so `out`
+  // always has exactly that many entries -- this is the one place allowed to
+  // assert a plain array into a `Window`. Every other function receives an
+  // already-`Window`-typed value; slicing or truncating it loses the tuple
+  // type, and a `Window`-typed parameter (fingerprint's) then rejects the
+  // result at compile time instead of silently hashing a shorter window.
+  return out as unknown as Window;
 }
 
 // FNV-1a, 64-bit. BigInt rather than the usual 32-bit number trick because
@@ -39,7 +45,21 @@ const MASK_64 = 0xffffffffffffffffn;
  *  different slot splits can never produce the same byte sequence. */
 const SLOT_SEPARATOR = "\u0000";
 
-export function fingerprint(window: readonly string[]): string {
+/**
+ * FNV-1a over a `Window`'s 2 * CONTEXT_RADIUS + 1 slots, joined with a NUL
+ * separator that cannot occur inside a normalized source line.
+ *
+ * Takes a `Window`, not `readonly string[]`, on purpose. For a window of
+ * exactly this fixed length, and given that real source content can never
+ * contain U+0000 (see `GAP`'s doc comment), the encoded string always
+ * contains exactly `2 * CONTEXT_RADIUS + (number of GAP slots)` NUL
+ * characters -- which is enough to make two differently shaped windows
+ * (e.g. one with a GAP slot vs. one with a real line that literally reads
+ * "GAP") structurally unable to encode the same way. That argument breaks
+ * for a window of any other length, so the parameter type -- not just this
+ * comment -- is what stops a caller from ever hashing a trimmed window.
+ */
+export function fingerprint(window: Window): string {
   const encoded = window.join(SLOT_SEPARATOR);
   let hash = FNV_OFFSET_BASIS;
   for (let i = 0; i < encoded.length; i += 1) {

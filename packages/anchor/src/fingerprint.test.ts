@@ -61,29 +61,70 @@ describe("windowAt", () => {
 });
 
 describe("fingerprint", () => {
+  // fingerprint() takes a Window -- a fixed 2 * CONTEXT_RADIUS + 1 = 7 slot
+  // tuple, not an arbitrary-length array (see Window's doc comment in
+  // types.ts). Every window below is padded to that exact shape so these
+  // tests exercise the shape the code actually accepts, not a shape
+  // `relocate` could never legally construct.
   it("is stable for the same window", () => {
-    expect(fingerprint(["a", "b", "c"])).toBe(fingerprint(["a", "b", "c"]));
+    expect(fingerprint(["a", "b", "c", "d", "e", "f", "g"])).toBe(
+      fingerprint(["a", "b", "c", "d", "e", "f", "g"]),
+    );
   });
 
   it("is 16 lowercase hex characters", () => {
-    expect(fingerprint(["a", "b", "c"])).toMatch(/^[0-9a-f]{16}$/u);
+    expect(fingerprint(["a", "b", "c", "d", "e", "f", "g"])).toMatch(/^[0-9a-f]{16}$/u);
   });
 
   it("distinguishes windows that differ only in where the slots are split", () => {
-    // Joining with a plain "\n" would hash ["a\nb", "c"] and ["a", "b\nc"]
-    // identically. The separator used cannot occur inside a line, so these
-    // must differ.
-    expect(fingerprint(["a\nb", "c"])).not.toBe(fingerprint(["a", "b\nc"]));
+    // Joining with a plain "\n" would hash ["a\nb", "c", ...] and
+    // ["a", "b\nc", ...] identically. The separator used cannot occur
+    // inside a line, so these must differ. The trailing GAP padding is
+    // identical in both, isolating the difference to where the split falls.
+    expect(fingerprint(["a\nb", "c", GAP, GAP, GAP, GAP, GAP])).not.toBe(
+      fingerprint(["a", "b\nc", GAP, GAP, GAP, GAP, GAP]),
+    );
   });
 
   it("distinguishes windows that differ only in order", () => {
-    expect(fingerprint(["a", "b", "c"])).not.toBe(fingerprint(["c", "b", "a"]));
+    expect(fingerprint(["a", "b", "c", "d", "e", "f", "g"])).not.toBe(
+      fingerprint(["g", "f", "e", "d", "c", "b", "a"]),
+    );
   });
 
   it("distinguishes non-ASCII content differing above the low byte", () => {
     // A hash folding each character to its low byte would collide these:
     // U+0041 "A" and U+0141 both have low byte 0x41.
-    expect(fingerprint(["A"])).not.toBe(fingerprint(["Ł"]));
+    expect(fingerprint(["A", GAP, GAP, GAP, GAP, GAP, GAP])).not.toBe(
+      fingerprint(["Ł", GAP, GAP, GAP, GAP, GAP, GAP]),
+    );
+  });
+
+  it("gives the same fingerprint for lines sourced with CRLF/trailing-whitespace noise as for clean lines", () => {
+    // "is stable for the same window" above would still pass for a
+    // fingerprint that just returns e.g. JSON.stringify(window) verbatim --
+    // it never checks that two *differently-sourced* copies of the same
+    // code converge. This is the property normalizeLine's own docstring
+    // calls load-bearing: "a thread must not go outdated over a transport
+    // detail." Exercised through createAnchor so it covers the composed
+    // windowAt -> normalizeLine -> fingerprint path, not just normalizeLine
+    // in isolation.
+    const clean = {
+      filePath: "src/app.ts",
+      blobSha: "sha-lf",
+      lines: linesOf(1, ["a", "b", "c", "d", "e", "f", "g"]),
+    };
+    const noisy = {
+      filePath: "src/app.ts",
+      blobSha: "sha-crlf",
+      lines: linesOf(1, ["a\r", "b  ", "c\t", "d\r", "e", "f  \t", "g\r"]),
+    };
+
+    const cleanAnchor = createAnchor(clean, 4);
+    const noisyAnchor = createAnchor(noisy, 4);
+
+    expect(cleanAnchor?.fingerprint).toBe(noisyAnchor?.fingerprint);
+    expect(cleanAnchor?.context).toEqual(noisyAnchor?.context);
   });
 });
 
