@@ -7,5 +7,5 @@
       "@diffsync/*": ["packages/*/src"]
     }
   },
-  "include": ["packages/anchor/src"]
+  "include": ["packages/anchor/src", "packages/diff/src"]
 }
