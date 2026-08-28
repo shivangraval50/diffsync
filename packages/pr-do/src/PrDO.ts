@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { z } from "zod";
 import { createAnchor, type Anchor } from "@diffsync/anchor";
 import { toAnchorTarget, type PullRequest } from "@diffsync/diff";
 import {
@@ -56,6 +57,16 @@ export function shouldReplay(lastSeenSeq: number, latestSeq: number, threshold: 
   if (lastSeenSeq <= 0) return false;
   return latestSeq - lastSeenSeq <= threshold;
 }
+
+/**
+ * `POST /prs/:key/refresh`'s body, for the fixture branch only (the GitHub
+ * branch takes no body). Parsed with `.safeParse`, not cast: a top-level
+ * JSON `null` is valid JSON but not an object, and `(body as { revision?:
+ * unknown }).revision` on it throws a synchronous `TypeError` that this
+ * function's caller (`fetch()`) never catches -- an unhandled 500 instead of
+ * a clean 400 for a malformed request.
+ */
+const refreshBodySchema = z.object({ revision: z.number().int().optional() });
 
 export class PrDO extends DurableObject {
   private cachedThreads: ThreadsState | null = null;
@@ -171,6 +182,16 @@ export class PrDO extends DurableObject {
       return result;
     }
 
+    // A failed fetch must never erase a source someone is already relying
+    // on. That includes a `/refresh` that could not reach GitHub this time:
+    // without this check, a DO already serving a confirmed `github` result
+    // would have it silently replaced by the unrelated fallback fixture on
+    // every transient network blip. If anything at all is already cached --
+    // a good result OR a previous fallback -- keep serving exactly that
+    // (including its original `reason`, if it was a fallback) rather than
+    // manufacturing a new one from this attempt's failure.
+    if (this.cachedSource !== null) return this.cachedSource;
+
     const fallbackPr = fixturePullRequest(FALLBACK_FIXTURE_SLUG, 1);
     if (fallbackPr === null) return null;
     const fallback: SourceResult = { origin: "fallback", pr: fallbackPr, reason: fetched.kind };
@@ -279,8 +300,9 @@ export class PrDO extends DurableObject {
       if (ref === null) return new Response("no such pull request", { status: 404 });
 
       if (ref.kind === "fixture") {
-        const body = (await request.json().catch(() => ({}))) as { revision?: unknown };
-        const revision = typeof body.revision === "number" ? body.revision : ref.revision;
+        const parsedBody = refreshBodySchema.safeParse(await request.json().catch(() => ({})));
+        if (!parsedBody.success) return new Response("invalid refresh body", { status: 400 });
+        const revision = parsedBody.data.revision ?? ref.revision;
         if (revision < 1 || revision > fixtureRevisionCount(ref.slug)) {
           return new Response("no such revision", { status: 400 });
         }
@@ -289,10 +311,30 @@ export class PrDO extends DurableObject {
         // Models a force-push: same pull request, same comment log, new head.
         this.cacheSource({ origin: "fixture", pr });
       } else {
-        this.cachedSource = null;
-        this.ctx.storage.sql.exec("DELETE FROM meta WHERE k = 'source'");
+        // Deliberately do NOT null `cachedSource` or delete the persisted
+        // row before this await. `currentSource()` -- read by every
+        // in-flight `webSocketMessage`, on this connection AND every
+        // sibling connected to this same pull request -- has no visibility
+        // into "a reload is in progress"; it just reads whatever is
+        // cached. Clearing it first would make it return null for the
+        // whole GitHub round trip, and `webSocketMessage` closes any
+        // socket whose source is null with 1011 -- disconnecting every
+        // reviewer in the room over a routine refresh, not just whoever
+        // asked for it. `loadSource` holds the existing `cachedSource`
+        // live until a replacement is actually ready, and (per
+        // `doLoadSource`'s failure branch above) leaves it untouched
+        // rather than wiping it if the refetch fails -- so a refresh that
+        // fails is invisible, not disruptive.
+        const previousHeadSha = this.cachedSource?.pr.headSha ?? null;
         const reloaded = await this.loadSource(key);
         if (reloaded === null) return new Response("no such pull request", { status: 404 });
+        if (reloaded.pr.headSha === previousHeadSha) {
+          // Nothing actually changed (the refetch failed and the old
+          // source was held, or genuinely found nothing new): a routine
+          // refresh should be invisible to connected reviewers, so there is
+          // nothing for anyone to reload and nothing to broadcast.
+          return new Response(null, { status: 200 });
+        }
       }
 
       const current = this.cachedSource;

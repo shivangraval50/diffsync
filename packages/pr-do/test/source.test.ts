@@ -97,6 +97,13 @@ function anchorInOkPr(path: string, line: number): Anchor {
   return anchor;
 }
 
+/** `OK_PR` with a different head sha, standing in for "GitHub answered again,
+ *  and something actually changed" on a `/refresh`. */
+function refreshedOkPr(headSha: string): GithubResult {
+  if (OK_PR.kind !== "ok") throw new Error("OK_PR is not ok");
+  return { kind: "ok", pr: { ...OK_PR.pr, headSha } };
+}
+
 /** A deferred `GithubResult`, so a test can hold `fetchGithubPr` open and
  *  choose exactly when it resolves -- the only way to make `resolveSource`
  *  genuinely suspend rather than settle on the next microtask. */
@@ -289,6 +296,22 @@ describe("POST /prs/:key/refresh", () => {
     expect(res.status).toBe(400);
   });
 
+  it("400s a refresh body that is valid JSON but not an object, instead of crashing", async () => {
+    // Catches: `(await request.json().catch(() => ({}))) as { revision?:
+    // unknown }` -- the brief's hand-rolled cast. `null` is valid JSON, so
+    // `request.json()` resolves instead of rejecting (the `.catch` never
+    // fires), and `body.revision` on `null` throws a synchronous TypeError
+    // that nothing in `fetch()` catches: an unhandled 500, not a clean 400.
+    // A Zod `.safeParse` rejects the shape instead of touching a property on
+    // it.
+    const key = encodePrKey({ kind: "fixture", slug: "parser-bugfix", revision: 1 });
+    const res = await SELF.fetch(`https://do.test/prs/${key}/refresh`, {
+      method: "POST",
+      body: "null",
+    });
+    expect(res.status).toBe(400);
+  });
+
   it("re-fetches from GitHub for a GitHub key", async () => {
     const key = githubKey();
     const github = await withFakeGithub(key, async () => OK_PR);
@@ -296,32 +319,113 @@ describe("POST /prs/:key/refresh", () => {
     await SELF.fetch(`https://do.test/prs/${key}/refresh`, { method: "POST", body: "{}" });
     expect(github.calls()).toBe(2);
   });
+
+  it("does not disconnect an uninvolved reviewer while a GitHub refresh is in flight", async () => {
+    // Catches: nulling `cachedSource` (and deleting the persisted row)
+    // before the refresh's own re-fetch resolves. `currentSource()` -- read
+    // by every `webSocketMessage` invocation, on this connection AND every
+    // sibling connected to the same pull request -- has no visibility into
+    // "a reload is in progress"; it just reads whatever is cached. Clearing
+    // it first makes it return null for the whole GitHub round trip, and
+    // `webSocketMessage` closes any socket whose source is null with 1011 --
+    // disconnecting everyone in the room over one routine refresh, not just
+    // whoever asked for it. Here, "whoever asked for it" is a bare HTTP
+    // POST with no socket at all; `ada` is the uninvolved reviewer, and all
+    // she does is `ping`.
+    const key = githubKey();
+    await withFakeGithub(key, async () => OK_PR);
+    const ada = await join(key, "ada");
+
+    const { promise, resolve } = deferredGithub();
+    const refreshGithub = await withFakeGithub(key, () => promise);
+
+    const refreshPromise = SELF.fetch(`https://do.test/prs/${key}/refresh`, {
+      method: "POST",
+      body: "{}",
+    });
+    // The refresh's own GitHub fetch is genuinely, provably pending right
+    // now -- not settled on a microtask before anything subscribed to it.
+    await waitForCalls(refreshGithub, 1);
+
+    send(ada.ws, { t: "ping", clientTime: Date.now() });
+    const pong = await ada.inbox.next((m) => m.t === "pong", 2_000);
+    expect(pong.t).toBe("pong");
+
+    resolve(refreshedOkPr("gh-head-2"));
+    const res = await refreshPromise;
+    expect(res.status).toBe(200);
+
+    const changed = await ada.inbox.next((m) => m.t === "sourceChanged", 2_000);
+    if (changed.t !== "sourceChanged") throw new Error("expected sourceChanged");
+    expect(changed.headSha).toBe("gh-head-2");
+  });
+
+  it("leaves the old source intact when a refresh's refetch fails, instead of swapping in the fallback fixture", async () => {
+    // Catches: the failure branch of `doLoadSource` unconditionally building
+    // a fresh `fallback` SourceResult and overwriting `cachedSource` with
+    // it. Without the fix, a room already looking at a real, confirmed
+    // GitHub pull request would have it silently replaced by the unrelated
+    // seeded fixture on a single transient GitHub error -- worse than the
+    // disconnect this whole fix round is about, because nobody would even
+    // see an error, just a diff that quietly stopped matching what they were
+    // reviewing.
+    const key = githubKey();
+    await withFakeGithub(key, async () => OK_PR);
+    const ada = await join(key, "ada");
+
+    await withFakeGithub(key, async () => ({ kind: "unavailable" }));
+    const res = await SELF.fetch(`https://do.test/prs/${key}/refresh`, {
+      method: "POST",
+      body: "{}",
+    });
+    expect(res.status).toBe(200);
+
+    // Nothing changed, so nobody was told to reload.
+    await expect(ada.inbox.next((m) => m.t === "sourceChanged", 200)).rejects.toThrow();
+
+    const source = sourceResultSchema.parse(
+      await (await SELF.fetch(`https://do.test/prs/${key}/source`)).json()
+    );
+    expect(source.origin).toBe("github");
+    expect(source.pr.headSha).toBe("gh-head-1");
+  });
 });
 
 /**
- * Task 9 proved two things about `webSocketMessage` under the assumption
- * that `resolveSource` never genuinely suspends (the fixture-only path had
- * zero real `await`s). Task 11 makes `resolveSource` a real, occasionally
- * slow, network fetch. These tests re-prove the same two properties against
- * a `fetchPr` that is DEFERRED -- under the test's control, not the
- * microtask queue's -- to force genuine concurrency rather than assume it
- * away.
+ * What these two tests actually exercise: fetch coalescing across two
+ * `/ws` connection attempts racing a single, genuinely still-pending
+ * GitHub fetch (via a `fetchPr` DEFERRED under the test's control, not the
+ * microtask queue's, so the suspension is real rather than a same-tick
+ * pass-through -- see `waitForCalls`). `github.calls()).toBe(1)` at the
+ * point both connections resolve is the load-bearing proof that the race
+ * was genuine.
  *
- * The fix landed in PrDO.ts is exactly the one the brief for this task
- * predicted: `webSocketMessage` never calls `resolveSource` any more. It
- * reads `currentSource()`, a synchronous field read, and the genuinely
- * suspending call only ever happens in `fetch()`'s `/source` and `/ws`
- * branches -- both of which complete (or fail) before a socket exists or a
- * request resolves, so nothing can ever race a suspended `webSocketMessage`
- * invocation, because there is no such thing any more. The tests below
- * construct the closest thing to the brief's literal scenario that this
- * architecture actually allows: two independent connections racing a single,
- * still-pending, shared fetch (the only place a real suspension can still
- * coincide with live traffic), then drive the exact Task 9 assertions
- * against the sockets that come out of it.
+ * What they do NOT exercise, despite Task 9's original names implying it:
+ * `webSocketMessage` resuming mid-await while a sibling message arrives on
+ * the same or another socket. That literal scenario is unreachable now, by
+ * construction, not merely untriggered by these tests -- `webSocketMessage`
+ * contains zero `await`s any more (verified by reading the whole function
+ * body and grepping every `async` in PrDO.ts), so there is no suspension
+ * point inside it for a sibling message to interleave with. The one
+ * function that CAN genuinely suspend on network I/O, `resolveSource`, is
+ * reachable only from `fetch()`'s `/source` and `/ws` branches (and,
+ * separately, `/refresh`) -- never from `webSocketMessage` -- and both of
+ * those complete or fail before a socket exists or a request resolves. The
+ * `hello`/`openThread` messages below are sent only once both connections'
+ * `resolveSource` calls have already settled (after the `Promise.all`),
+ * which is exactly why: by then there is nothing left in this architecture
+ * that could still be suspended for them to race against.
+ *
+ * So what do these tests prove? That the coalescing itself (`sourceLoad`)
+ * doesn't corrupt anything downstream -- the repeat-hello guard and the
+ * append-only log ordering both still hold on sockets that came out of a
+ * genuine two-connections-one-fetch race. That is Task 9's invariant,
+ * re-confirmed under real concurrency at the one point real concurrency can
+ * still occur -- not a re-run of Task 9's literal scenario, which no longer
+ * has anywhere to happen.
  */
-describe("resilience: the repeat-hello guard and the append log under a genuinely suspending resolveSource", () => {
-  it("keeps the repeat-hello guard correct when the fetch behind it is still pending while two sockets race it", async () => {
+describe("fetch coalescing across two /ws connections racing one in-flight GitHub fetch", () => {
+  it("coalesces onto one fetchPr call, and the repeat-hello guard still holds on the sockets that result", async () => {
     const key = githubKey();
     const { promise, resolve } = deferredGithub();
     const github = await withFakeGithub(key, () => promise);
@@ -374,7 +478,7 @@ describe("resilience: the repeat-hello guard and the append log under a genuinel
     expect(ack.seq).toBe(1);
   });
 
-  it("keeps the append-only log correctly ordered when two openThreads come from connections that raced a shared, in-flight fetch", async () => {
+  it("coalesces onto one fetchPr call, and the append-only log is still correctly ordered on the sockets that result", async () => {
     const key = githubKey();
     const { promise, resolve } = deferredGithub();
     const github = await withFakeGithub(key, () => promise);

@@ -200,6 +200,20 @@ describe("fetchGithubPr", () => {
     expect(result.pr.files[2]?.previousPath).toBe("old.ts");
   });
 
+  it("maps a deleted GitHub account (user: null) to author \"unknown\" instead of throwing", async () => {
+    // `pullSchema.user` is `z.object({ login: ... }).nullable()` because
+    // GitHub sends `user: null` for a pull request whose author's account
+    // has since been deleted. Catches: a `pull.user.login` access with no
+    // null check, which would throw a TypeError for exactly this PR instead
+    // of degrading to a name the UI can still display.
+    const fetchImpl = stubFetch((url) =>
+      url.includes("/files") ? jsonResponse(FILES) : jsonResponse({ ...PULL, user: null })
+    );
+    const result = await fetchGithubPr(REF, fetchImpl as unknown as typeof fetch);
+    if (result.kind !== "ok") throw new Error("expected ok");
+    expect(result.pr.author).toBe("unknown");
+  });
+
   it("skips a file whose patch does not parse rather than failing the whole PR", async () => {
     // One malformed patch from a third party must not cost the visitor every
     // other file in the review.
