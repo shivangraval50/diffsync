@@ -17,6 +17,19 @@ export function ThreadCard({
   const [body, setBody] = useState("");
   const trimmed = body.trim();
 
+  // `thread.resolvedBy` is a `reviewerId` (see packages/threads/src/types.ts),
+  // not anything fit to print. The resolver has very likely left a comment on
+  // this same thread, so their nickname is recovered from there. If they
+  // resolved without ever commenting -- or have since disconnected, so they
+  // no longer appear in presence either -- there is no human name to show,
+  // and the raw id must never stand in for one; "Resolved" alone is printed
+  // instead.
+  const resolverNickname =
+    thread.resolvedBy === null
+      ? null
+      : (thread.comments.find((comment) => comment.reviewerId === thread.resolvedBy)?.nickname ??
+        null);
+
   return (
     <article
       data-testid={`thread-${thread.threadId}`}
@@ -25,7 +38,7 @@ export function ThreadCard({
     >
       {thread.resolved ? (
         <p data-testid="resolved-by" className="thread__resolved">
-          {`Resolved by ${thread.resolvedBy ?? "someone"}`}
+          {resolverNickname === null ? "Resolved" : `Resolved by ${resolverNickname}`}
         </p>
       ) : null}
 
