@@ -239,38 +239,33 @@ describe("beyond the brief: the historical bug shape and its documented survivor
     );
   });
 
-  it("documents the residual risk: a fully-real duplicated block whose true occurrence is edited away still relocates to the surviving duplicate", () => {
-    // This is the case rule 5 was explicitly documented NOT to close (see
-    // relocate.ts's doc comment on `relocate` and on `MIN_DISTINCTIVE_SLOTS`):
-    // a 7-line block -- every slot real, nothing sparse about it at all --
-    // that happens to occur twice in the file. The anchor is created against
-    // the first occurrence ("site A"). By the time of relocation, site A has
-    // been edited into something unrecognisable (a real code change), but an
-    // unrelated, coincidentally-identical block ("site B") elsewhere in the
-    // file was never touched and still carries the exact window the anchor
-    // stored.
+  it("Fix round 1: a duplicated block of blank lines whose true occurrence is edited away now correctly reports outdated", () => {
+    // This property used to document the opposite (unsafe) behaviour: it
+    // asserted `{ kind: "located" }` at the surviving duplicate, because
+    // MIN_DISTINCTIVE_SLOTS counted a slot as sufficient evidence whenever it
+    // was merely non-GAP -- and a blank line is non-GAP. fast-check shrank
+    // that version to seven blank lines (see the pinned regression test
+    // below for the exact case) and reported a real, reviewer-confirmed
+    // silent mis-anchor: a context of nothing but blank lines, duplicated
+    // once in the file, relocated to the wrong copy once the original was
+    // edited.
     //
-    // Asserting the *aspirational* invariant here -- that a thread whose
-    // real code changed should never silently relocate onto unrelated code
-    // -- is exactly the property fast-check falsifies; run with that
-    // assertion instead of the one below, it shrinks in a handful of tries to
-    // a block of seven blank lines (a wholly realistic file shape, e.g.
-    // spacing between two classes) and reports `{ kind: "located" }` at the
-    // surviving duplicate. See task-4-report.md for the full shrunk
-    // counterexample and the run that produced it.
-    //
-    // `relocate` cannot be blamed for this by its own contract: content at
-    // the returned line is genuinely, byte-for-byte identical to
-    // `anchor.context` (the "central claim" property above holds throughout
-    // this whole family of inputs), and distinguishing "the code moved here"
-    // from "this is an unrelated coincidence" is explicitly out of scope for
-    // a fixed-radius text window (see relocate.ts's doc comment). This test
-    // asserts the actual, accepted behaviour -- not the aspirational one --
-    // so the residual risk is a decision on record rather than a surprise,
-    // exactly like the file-edge false-outdated test above.
+    // The fix (relocate.ts, `isDistinctiveSlot`) now requires a slot to be
+    // non-GAP *and* non-blank after normalization to count toward
+    // MIN_DISTINCTIVE_SLOTS. A block that is entirely blank has zero
+    // distinctive slots, so rule 5 refuses to scan at all -- the aspirational
+    // assertion below now holds for the whole blank-line family, not just
+    // the one shrunk case. Bug class this guards: a regression back to
+    // "non-GAP is enough" (proven below by reverting `isDistinctiveSlot` to
+    // `slot !== GAP`, which reproduces the historical failure).
     fc.assert(
       fc.property(
-        fc.array(fc.string({ minLength: 1, maxLength: 12 }), { minLength: 7, maxLength: 7 }),
+        fc.array(
+          fc
+            .array(fc.constantFrom(" ", "\t"), { maxLength: 6 })
+            .map((chars) => chars.join("")),
+          { minLength: 7, maxLength: 7 }
+        ),
         fc.integer({ min: 8, max: 500 }),
         (block, siteBStart) => {
           const beforeMap = new Map<number, string>();
@@ -281,14 +276,164 @@ describe("beyond the brief: the historical bug shape and its documented survivor
           if (anchor === null) throw new Error("expected an anchor");
 
           const afterMap = new Map<number, string>();
-          // Site A: genuinely edited -- every line changed, so its window can
-          // no longer match the anchor's stored context.
+          // Site A: rewritten to genuinely distinctive text -- if it were
+          // rewritten to more blank lines this would test nothing new.
+          block.forEach((_, i) => afterMap.set(i + 1, `rewritten ${i}`));
+          // Site B: the coincidental all-blank duplicate, never touched.
+          block.forEach((t, i) => afterMap.set(siteBStart + i, t));
+          const after: AnchorTarget = { filePath: PATH, blobSha: "sha-after", lines: afterMap };
+
+          expect(relocate(anchor, after)).toEqual({ kind: "outdated" });
+        }
+      ),
+      { numRuns: 200 }
+    );
+  });
+
+  it("pins the exact shrunk counterexample fast-check found before the fix (7 blank lines, duplicate at siteBStart=8)", () => {
+    // Before Fix round 1, this exact input reproduced a verified silent
+    // mis-anchor: relocate(anchor, after) => { kind: "located", line: 11 }.
+    // The anchor's window was seven blank lines (all normalize to ""), which
+    // scored 7-of-7 under the old "non-GAP" counting rule -- comfortably
+    // past MIN_DISTINCTIVE_SLOTS -- while carrying no real information.
+    // Pinned literally, with no generator, so this specific regression can
+    // never silently return.
+    const block = [" ", " ", " ", " ", " ", " ", " "];
+    const siteBStart = 8;
+
+    const beforeMap = new Map<number, string>();
+    block.forEach((t, i) => beforeMap.set(i + 1, t));
+    block.forEach((t, i) => beforeMap.set(siteBStart + i, t));
+    const before: AnchorTarget = { filePath: PATH, blobSha: "sha-before", lines: beforeMap };
+    const anchor = createAnchor(before, 4);
+    if (anchor === null) throw new Error("expected an anchor");
+
+    const afterMap = new Map<number, string>();
+    block.forEach((_, i) => afterMap.set(i + 1, `rewritten ${i}`));
+    block.forEach((t, i) => afterMap.set(siteBStart + i, t));
+    const after: AnchorTarget = { filePath: PATH, blobSha: "sha-after", lines: afterMap };
+
+    expect(relocate(anchor, after)).toEqual({ kind: "outdated" });
+  });
+
+  it("still relocates when exactly MIN_DISTINCTIVE_SLOTS slots are genuinely distinctive (the fix must not make relocation useless)", () => {
+    // Coordinator's explicit concern after Fix round 1: does requiring
+    // "distinctive", not just "present", push ordinary well-contexted code
+    // into outdated too? Generalizes relocate.test.ts's fixed boundary
+    // example (V1.slice(3,7)) across arbitrary non-blank content: the centre
+    // plus exactly 3 of 6 context slots real and distinctive, the rest
+    // GAP (unexposed, not blank -- this is a file-start hunk, not a blank-
+    // line region). distinctiveSlotCount is then exactly 4, the threshold
+    // itself, and the match is unambiguous, so relocation must still
+    // succeed.
+    fc.assert(
+      fc.property(
+        fc.array(
+          fc.string({ minLength: 1, maxLength: 10 }).filter((s) => s.trim() !== "" && s !== GAP),
+          { minLength: 4, maxLength: 4 }
+        ),
+        (lines) => {
+          // Lines exposed at 1..4 only: window at line 4 (the last exposed
+          // line, so it is the anchor and also the window's centre) is
+          // [lines[0],lines[1],lines[2],lines[3],GAP,GAP,GAP] -- 4 distinctive
+          // slots exactly (the minimum), nothing blank, nothing coincidental.
+          const before = targetOf(lines, "sha-before");
+          const anchor = createAnchor(before, 4);
+          if (anchor === null) throw new Error("expected an anchor");
+
+          // Shifted down by 2, content otherwise untouched and unique.
+          const after = targetOf(["pad-1", "pad-2", ...lines], "sha-after");
+          expect(relocate(anchor, after)).toEqual({ kind: "located", line: 6 });
+        }
+      ),
+      { numRuns: 150 }
+    );
+  });
+
+  it("documents the still-standing residual risk: a duplicated block of genuinely distinctive (non-blank) content is unaffected by the fix", () => {
+    // Fix round 1 closed the blank-line family; it was never meant to close
+    // -- and does not close -- the case relocate.ts's own doc comment already
+    // named: a long enough duplicated block of real, distinctive content,
+    // fully exposed on both occurrences, still relocates to whichever one is
+    // visible once the true occurrence is edited away. Every slot here is
+    // guaranteed non-blank (each string is prefixed with a literal "x", so
+    // `.trim()` can never collapse it), so distinctiveSlotCount is always 7
+    // -- this is not a threshold question at all, it is the fundamental
+    // limit of content-based (not identity-based) relocation that
+    // `MIN_DISTINCTIVE_SLOTS` was never able to address. Re-running this
+    // family's aspirational assertion (`outdated`) after the fix still finds
+    // a counterexample on the first try -- see task-4-report.md, "Fix round
+    // 1" section, for the shrunk case. Asserting the actual behaviour here,
+    // as with the file-edge false-outdated test above, so this remaining gap
+    // stays a decision on record.
+    fc.assert(
+      fc.property(
+        fc.array(fc.string({ minLength: 1, maxLength: 12 }).map((s) => `x${s}`), {
+          minLength: 7,
+          maxLength: 7,
+        }),
+        fc.integer({ min: 8, max: 500 }),
+        (block, siteBStart) => {
+          const beforeMap = new Map<number, string>();
+          block.forEach((t, i) => beforeMap.set(i + 1, t));
+          block.forEach((t, i) => beforeMap.set(siteBStart + i, t));
+          const before: AnchorTarget = { filePath: PATH, blobSha: "sha-before", lines: beforeMap };
+          const anchor = createAnchor(before, 4);
+          if (anchor === null) throw new Error("expected an anchor");
+
+          const afterMap = new Map<number, string>();
           block.map((t) => `${t}_edited`).forEach((t, i) => afterMap.set(i + 1, t));
-          // Site B: the coincidental duplicate, never touched.
           block.forEach((t, i) => afterMap.set(siteBStart + i, t));
           const after: AnchorTarget = { filePath: PATH, blobSha: "sha-after", lines: afterMap };
 
           expect(relocate(anchor, after)).toEqual({ kind: "located", line: siteBStart + 3 });
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it("documents that the residual risk extends to three-or-more coincidental occurrences, not just two", () => {
+    // Cheap to reach from the two-site property above: a third,
+    // untouched duplicate of the same distinctive block elsewhere in the
+    // file. Rule 4 (ambiguity) only fires when two or more matching
+    // candidates are visible in the *same* scan; with the true occurrence
+    // (site A) edited away, sites B and C are the only two left standing --
+    // both real, both visible together -- so rule 4 correctly refuses to
+    // pick between them and reports outdated. This is not a new failure
+    // mode: it is rule 4 doing exactly its documented job. Recorded so the
+    // 3+-occurrence shape is exercised at all, since every other property in
+    // this file caps out at two sites.
+    fc.assert(
+      fc.property(
+        fc.array(fc.string({ minLength: 1, maxLength: 12 }).map((s) => `x${s}`), {
+          minLength: 7,
+          maxLength: 7,
+        }),
+        fc.integer({ min: 8, max: 200 }),
+        fc.integer({ min: 8, max: 200 }),
+        (block, gapB, gapC) => {
+          const siteBStart = 8 + gapB;
+          const siteCStart = siteBStart + 7 + gapC;
+
+          const beforeMap = new Map<number, string>();
+          block.forEach((t, i) => beforeMap.set(i + 1, t));
+          block.forEach((t, i) => beforeMap.set(siteBStart + i, t));
+          block.forEach((t, i) => beforeMap.set(siteCStart + i, t));
+          const before: AnchorTarget = { filePath: PATH, blobSha: "sha-before", lines: beforeMap };
+          const anchor = createAnchor(before, 4);
+          if (anchor === null) throw new Error("expected an anchor");
+
+          const afterMap = new Map<number, string>();
+          block.map((t) => `${t}_edited`).forEach((t, i) => afterMap.set(i + 1, t));
+          block.forEach((t, i) => afterMap.set(siteBStart + i, t));
+          block.forEach((t, i) => afterMap.set(siteCStart + i, t));
+          const after: AnchorTarget = { filePath: PATH, blobSha: "sha-after", lines: afterMap };
+
+          // Two surviving coincidental matches: ambiguous, so outdated --
+          // unlike the single-surviving-duplicate case above, this one
+          // *is* the safe answer, produced by rule 4, not a gap in it.
+          expect(relocate(anchor, after)).toEqual({ kind: "outdated" });
         }
       ),
       { numRuns: 100 }

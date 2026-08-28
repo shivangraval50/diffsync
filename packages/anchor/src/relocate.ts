@@ -11,26 +11,40 @@ function sameWindow(a: readonly string[], b: readonly string[]): boolean {
 }
 
 /**
- * Minimum number of real (non-`GAP`) slots an anchor's stored `context` must
+ * Minimum number of *distinctive* slots an anchor's stored `context` must
  * carry before the scan path (rules 3/4) is allowed to trust a window match
  * at all. A window is 2 * CONTEXT_RADIUS + 1 = 7 slots; the centre slot is
- * always real (an anchor can only be created for a line the target exposes),
- * so requiring 4 of 7 means at least 3 of the 6 *context* slots -- on either
- * side, in any combination -- must be real text, i.e. at least 3 lines of
- * genuine surrounding context, not just the anchored line plus one neighbour.
+ * always present (an anchor can only be created for a line the target
+ * exposes), so requiring 4 of 7 means at least 3 of the 6 *context* slots --
+ * on either side, in any combination -- must be distinctive, i.e. at least 3
+ * lines of genuine surrounding signal, not just the anchored line plus one
+ * neighbour.
  *
- * This exists because a window with only the centre and one neighbour real --
- * e.g. `[GAP,GAP,GAP,"}",GAP,GAP,GAP]` or `[GAP,GAP,GAP,"foo","bar",GAP,GAP]`
- * -- is not distinctive: short, common lines produce that exact shape at
- * every isolated occurrence of the same one or two tokens, anywhere in the
- * file. If the anchor's true location stops being exposed (edited elsewhere,
- * or simply not rendered by this diff) while an unrelated, coincidentally
- * identical occurrence elsewhere still is, rules 3/4 cannot tell them apart --
- * verified by constructing exactly that case (see "insufficient context"
- * below). Rule 4 only saves you when *both* occurrences are visible in the
- * same scan; this precondition instead refuses to scan at all when the
- * anchor never had enough evidence to relocate safely, independent of what
- * the target exposes.
+ * A slot is distinctive when, after normalization, it is neither `GAP` nor
+ * blank. Merely non-`GAP` is not enough: a blank line carries the same
+ * (lack of) information as an unexposed one -- both are "nothing here" --
+ * and blank lines surrounding a short, common line (a lone `}`, a single
+ * short statement) are one of the most ordinary shapes in real source, not
+ * an exotic one. Counting them as evidence let a context like
+ * `["", "", "", "}", "", "", ""]` -- or, worse, seven blank lines with
+ * nothing distinctive at all -- pass this threshold while carrying almost no
+ * signal, exactly the failure mode the threshold exists to rule out. See
+ * `isDistinctiveSlot` below and the "blank-line duplicate" test, which is
+ * the shrunk counterexample that found this.
+ *
+ * This exists because a window with only the centre and one neighbour
+ * distinctive -- e.g. `[GAP,GAP,GAP,"}",GAP,GAP,GAP]` or
+ * `[GAP,GAP,GAP,"foo","bar",GAP,GAP]` -- is not distinctive: short, common
+ * lines produce that exact shape at every isolated occurrence of the same
+ * one or two tokens, anywhere in the file. If the anchor's true location
+ * stops being exposed (edited elsewhere, or simply not rendered by this
+ * diff) while an unrelated, coincidentally identical occurrence elsewhere
+ * still is, rules 3/4 cannot tell them apart -- verified by constructing
+ * exactly that case (see "insufficient context" below). Rule 4 only saves
+ * you when *both* occurrences are visible in the same scan; this
+ * precondition instead refuses to scan at all when the anchor never had
+ * enough evidence to relocate safely, independent of what the target
+ * exposes.
  *
  * Splitting `GAP` into an "past EOF" sentinel and an "unexposed" sentinel
  * does not fix this: two *mid-file* locations, each merely unexposed on
@@ -39,21 +53,32 @@ function sameWindow(a: readonly string[], b: readonly string[]): boolean {
  * evidence, not the sentinel's meaning, is the actual defect, so the fix is
  * a precondition on the anchor's own context, not a new sentinel kind.
  *
- * The cost is real: an anchor near the start or end of a short file, or one
- * made from a diff hunk that renders very little context around a line,
- * will report `outdated` on relocation attempts a human could plausibly
- * have resolved correctly. That is intentional and matches the spec's own
- * ordering of failures -- losing the thread's position and saying so is
- * strictly cheaper than a silent mis-anchor -- but it is a real cost, not a
- * free one, and it will show up as "outdated more often than expected" for
- * short files and file edges.
+ * The cost is real: an anchor near the start or end of a short file, one
+ * made from a diff hunk that renders very little context around a line, or
+ * one surrounded mostly by blank lines, will report `outdated` on
+ * relocation attempts a human could plausibly have resolved correctly. That
+ * is intentional and matches the spec's own ordering of failures -- losing
+ * the thread's position and saying so is strictly cheaper than a silent
+ * mis-anchor -- but it is a real cost, not a free one, and it will show up
+ * as "outdated more often than expected" for short files, file edges, and
+ * sparsely-populated regions.
  */
 export const MIN_DISTINCTIVE_SLOTS = 4;
 
-function realSlotCount(context: readonly string[]): number {
+/** A slot counts as distinctive when it is neither `GAP` nor, after
+ *  normalization, blank -- an empty string or one made only of whitespace.
+ *  `context` slots are already normalized by `windowAt` (trailing
+ *  whitespace/CR stripped), so a line that was entirely whitespace has
+ *  already collapsed to `""`; `.trim()` here is a defensive, self-contained
+ *  check rather than a dependency on that upstream normalization. */
+function isDistinctiveSlot(slot: string): boolean {
+  return slot !== GAP && slot.trim() !== "";
+}
+
+function distinctiveSlotCount(context: readonly string[]): number {
   let count = 0;
   for (const slot of context) {
-    if (slot !== GAP) count += 1;
+    if (isDistinctiveSlot(slot)) count += 1;
   }
   return count;
 }
@@ -101,9 +126,9 @@ export function relocate(anchor: Anchor, target: AnchorTarget): Relocation {
   }
 
   // 5. Precondition on the anchor itself, checked before scanning: a window
-  //    this sparse is not distinctive enough to relocate on safely, no
-  //    matter what the target contains. See MIN_DISTINCTIVE_SLOTS.
-  if (realSlotCount(anchor.context) < MIN_DISTINCTIVE_SLOTS) {
+  //    this sparse (or this blank) is not distinctive enough to relocate on
+  //    safely, no matter what the target contains. See MIN_DISTINCTIVE_SLOTS.
+  if (distinctiveSlotCount(anchor.context) < MIN_DISTINCTIVE_SLOTS) {
     return { kind: "outdated" };
   }
 
