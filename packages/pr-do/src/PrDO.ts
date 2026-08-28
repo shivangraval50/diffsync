@@ -12,6 +12,15 @@ import {
   type SourceResult,
 } from "@diffsync/protocol";
 import { applyEvent, emptyThreads, type ReviewEvent, type ThreadsState } from "@diffsync/threads";
+import {
+  ACTION_CAPACITY,
+  ACTION_WINDOW_MS,
+  CURSOR_CAPACITY,
+  CURSOR_WINDOW_MS,
+  newBucket,
+  takeToken,
+  type Bucket,
+} from "./ratelimit.js";
 import { appendEvent, currentSeq, getMeta, initSchema, putMeta, readEventsSince } from "./sql.js";
 
 interface Attachment {
@@ -21,6 +30,8 @@ interface Attachment {
    *  label a reviewer as signed in. Not a security boundary. */
   persistent: boolean;
   cursor: { filePath: string; line: number } | null;
+  actions: Bucket;
+  cursors: Bucket;
 }
 
 export interface PrEnv {
@@ -221,6 +232,8 @@ export class PrDO extends DurableObject {
         nickname: msg.nickname,
         persistent: msg.persistent,
         cursor: null,
+        actions: newBucket(Date.now(), ACTION_CAPACITY),
+        cursors: newBucket(Date.now(), CURSOR_CAPACITY),
       } satisfies Attachment);
 
       // Resume before the snapshot, so a client that asked for a gap gets the
@@ -244,11 +257,34 @@ export class PrDO extends DurableObject {
     }
 
     if (msg.t === "cursor") {
+      const limit = takeToken(attachment.cursors, Date.now(), CURSOR_CAPACITY, CURSOR_WINDOW_MS);
+      if (!limit.allowed) {
+        // Persist the spent bucket anyway, then drop the move silently: a
+        // reject frame for a cursor would be noise the UI has nothing to do
+        // with, and the next accepted move supersedes this one regardless.
+        ws.serializeAttachment({ ...attachment, cursors: limit.bucket } satisfies Attachment);
+        return;
+      }
       ws.serializeAttachment({
         ...attachment,
         cursor: { filePath: msg.filePath, line: msg.line },
+        cursors: limit.bucket,
       } satisfies Attachment);
       this.broadcastPresence();
+      return;
+    }
+
+    // Checked before any validation, and persisted whether or not the action
+    // is allowed: a flood must cost no anchor verification, and a token spent
+    // on a rejected action must still count or the limit is not a limit. No
+    // `await` sits between this read of `attachment` and `commit()` below --
+    // the first (and only) `await` in this handler is the `resolveSource`
+    // call already completed above, so this check cannot reopen the
+    // interleaving window `commit()` depends on staying closed.
+    const limit = takeToken(attachment.actions, Date.now(), ACTION_CAPACITY, ACTION_WINDOW_MS);
+    ws.serializeAttachment({ ...attachment, actions: limit.bucket } satisfies Attachment);
+    if (!limit.allowed) {
+      this.reject(ws, msg.clientSeq, "RATE_LIMITED");
       return;
     }
 
