@@ -6,7 +6,13 @@ compatibility_date = "2026-03-10"
 name = "PRS"
 class_name = "PrDO"
 
-# NOT YET APPLIED -- Task 20 applies this on the first deploy.
+# APPLIED 2026-08-28 by the first `wrangler deploy` of this Worker.
+#   script:  diffsync-prs
+#   version: bc572091-edf6-4a64-94f8-371289a7df49
+#   origin:  https://diffsync-prs.shivangraval5789.workers.dev
+#
+# This block is now FROZEN -- see the note below. Do not edit the tag or
+# the class list.
 #
 # This is the COMPLETE class list for this project: PrDO is the only Durable
 # Object class, and there is no second class planned (the home page's

@@ -13,3 +13,5 @@ test-results/
 *.tsbuildinfo
 .vercel
 .superpowers/
+# Internal implementation plan (the design spec in docs/superpowers/specs is tracked).
+docs/superpowers/plans/
