@@ -6,12 +6,17 @@
   "workspaces": ["packages/*", "apps/*", "vendor/openbid/packages/llm"],
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
     "e2e": "npm run e2e --workspace @diffsync/web"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.9.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
     "typescript": "^5.6.0",
+    "typescript-eslint": "^8.68.0",
     "vitest": "^2.1.0"
   }
 }

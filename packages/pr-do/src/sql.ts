@@ -29,6 +29,13 @@ export function getMeta(sql: Sql, k: string): string | null {
   return rows.length > 0 ? rows[0]!.v : null;
 }
 
+/** Remove one row outright, rather than overwriting it with a tombstone
+ *  value: callers (currently just the AI pass cache on `/refresh`) want a
+ *  plain miss afterward, indistinguishable from having never been written. */
+export function deleteMeta(sql: Sql, k: string): void {
+  sql.exec("DELETE FROM meta WHERE k = ?", k);
+}
+
 export function appendEvent(sql: Sql, event: ReviewEvent): number {
   sql.exec("INSERT INTO events (payload) VALUES (?)", JSON.stringify(event));
   return currentSeq(sql);

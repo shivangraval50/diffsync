@@ -39,6 +39,14 @@ export function ReviewSurface({
   // own supersession handling (see `connectPr`'s `close()`) is what keeps a
   // superseded connection from corrupting a store it still shares with its
   // replacement in that case.
+  //
+  // `prKey` is listed as a dependency purely to force a new store on it
+  // changing -- `createReviewStore()` itself takes no arguments and reads
+  // nothing from the closure, so the linter cannot tell the dependency
+  // apart from a stray one and flags it as unnecessary. It is not: removing
+  // it is exactly what would reuse one store across a `prKey` change, the
+  // bug the comment above this line exists to prevent.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   const store = useMemo(() => createReviewStore(), [prKey]);
   const connection = useRef<PrConnection | null>(null);
   const [selected, setSelected] = useState<{ path: string; line: number } | null>(null);

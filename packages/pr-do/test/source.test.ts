@@ -569,4 +569,48 @@ describe("the AI pass cache", () => {
     });
     expect(put.status).toBe(400);
   });
+
+  it("is invalidated by a /refresh that changes the revision, instead of going on serving the old revision's flags", async () => {
+    // Catches exactly the bug this fix round is about: `/refresh` used to
+    // swap `cachedSource` and persist the new source, but never touched the
+    // `ai` meta row, so `/api/ai` (which trusts a cache hit without ever
+    // consulting the source -- see `apps/web/src/app/api/ai/[key]/route.ts`)
+    // would go on handing out revision 1's summary and flags after a
+    // force-push to revision 2. In the shipped `auth-refactor` fixture,
+    // revision 2's `src/auth/token.ts` hunk 0 is entirely different code
+    // from revision 1's -- so a flag reading "src/auth/token.ts (hunk 0) --
+    // <reason>" left over from revision 1 would be silently mis-anchored
+    // against code nobody wrote, the project's own headline failure mode.
+    //
+    // Its own nonce: advancing the shared `auth-refactor` sample here would
+    // change what other tests (and `review.test.ts`) see when they read it.
+    const key = encodePrKey(
+      { kind: "fixture", slug: "auth-refactor", revision: 1 },
+      crypto.randomUUID().replace(/-/gu, "")
+    );
+
+    const stalePass = {
+      summary: "Revision 1: token signing looks fine.",
+      flags: [{ path: "src/auth/token.ts", hunkIndex: 0, reason: "revision 1's finding" }],
+      generatedBy: "test-fixture",
+      generatedAtMs: 1,
+    };
+    const put = await SELF.fetch(`https://do.test/prs/${key}/ai`, {
+      method: "PUT",
+      body: JSON.stringify(stalePass),
+    });
+    expect(put.status).toBe(200);
+    expect(await (await SELF.fetch(`https://do.test/prs/${key}/ai`)).json()).toEqual(stalePass);
+
+    const refresh = await SELF.fetch(`https://do.test/prs/${key}/refresh`, {
+      method: "POST",
+      body: JSON.stringify({ revision: 2 }),
+    });
+    expect(refresh.status).toBe(200);
+
+    // The old pass must be gone -- a plain miss, not a hit against revision
+    // 1's now-unrelated flags.
+    const afterRefresh = await SELF.fetch(`https://do.test/prs/${key}/ai`);
+    expect(afterRefresh.status).toBe(404);
+  });
 });

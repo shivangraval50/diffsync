@@ -9,7 +9,6 @@ import {
   parseServerMessage,
   prLabel,
   pullRequestSchema,
-  type ClientMessage,
   type ServerMessage,
 } from "./index";
 

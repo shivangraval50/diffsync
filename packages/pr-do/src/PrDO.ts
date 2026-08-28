@@ -33,6 +33,7 @@ import {
 import {
   appendEvent,
   currentSeq,
+  deleteMeta,
   deleteOutbox,
   enqueue,
   getMeta,
@@ -279,6 +280,26 @@ export class PrDO extends DurableObject {
    * (another connection's fresh `resolveSource` call) this may serve a
    * `fallback` a beat longer than strictly necessary, which is a fine trade
    * for never blocking a live message on a network call.
+   *
+   * Composition with `doLoadSource`'s non-persistence, and the one gap that
+   * leaves open: `doLoadSource` deliberately never writes a `fallback`
+   * result to storage (so it cannot outlive the shared GitHub quota's
+   * hourly reset), which means the ONLY place a `fallback` ever lives is
+   * `this.cachedSource`, in memory. If this object is a fresh DO instance
+   * whose very first resolution attempt hit that fallback branch -- nothing
+   * has ever been persisted to the `source` meta row yet -- and it is then
+   * evicted (or hibernates) before a real source is ever resolved, waking
+   * back up wipes `cachedSource` to `null`, and the fallback the room was
+   * relying on is gone: `getMeta(sql, "source")` reads back `null` too,
+   * because there was never anything to persist. The first message on a
+   * socket that survived that hibernation (sockets, unlike this field, are
+   * hibernation-safe) then finds `currentSource()` returning `null` here and
+   * gets closed with 1011 below. This is accepted, degraded-mode fallout,
+   * not a bug: the client reconnects, `resolveSource` gets a fresh shot at
+   * GitHub (or another fallback), and the room recovers. Persisting the
+   * fallback to fix this one path would reintroduce the exact staleness
+   * `doLoadSource`'s own comment (see its failure branch) exists to avoid --
+   * so don't.
    */
   private currentSource(): SourceResult | null {
     if (this.cachedSource !== null) return this.cachedSource;
@@ -401,6 +422,20 @@ export class PrDO extends DurableObject {
 
       const current = this.cachedSource;
       if (current !== null) {
+        // Drop any cached AI pass in the same breath as telling the room the
+        // diff moved. `/api/ai` (the Vercel route) treats a cache hit here as
+        // authoritative and never consults the source itself -- see the `/ai`
+        // branch's own comment below -- so a pass generated against the old
+        // revision would otherwise go on being served, unstyled and
+        // unlabelled, against hunks that may now hold entirely different
+        // code. That is the project's own headline failure mode
+        // (`README`: "a thread that quietly re-points at different code"),
+        // reproduced for an AI flag instead of a thread anchor. Deleting the
+        // row outright (rather than, say, keying it by `headSha`) keeps the
+        // `/ai` branch a "pure cache read/write" that never has to know
+        // about sources: this is the one place that already knows a change
+        // just happened, so this is where it gets invalidated.
+        deleteMeta(this.ctx.storage.sql, "ai");
         // Everyone looking at this pull request needs to reload the diff, or
         // half the room would be commenting against a revision that no
         // longer exists and every one of those comments would be rejected as
