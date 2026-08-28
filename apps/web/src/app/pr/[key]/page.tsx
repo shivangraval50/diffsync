@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import { prLabel } from "@diffsync/protocol";
 import { SourceBanner } from "@/components/SourceBanner";
+import { DiffPanelHost } from "@/components/DiffPanelHost";
 import { fetchSource } from "@/lib/prs";
 
 export default async function PrPage({
@@ -22,19 +23,7 @@ export default async function PrPage({
 
       <SourceBanner source={source} />
 
-      <ol data-testid="file-list">
-        {source.pr.files.map((file) => (
-          <li key={file.path} data-testid={`file-${file.path}`}>
-            <span>{file.path}</span>
-            <span>{file.status}</span>
-            <span>
-              {file.kind === "patch"
-                ? `${file.hunks.length} hunk${file.hunks.length === 1 ? "" : "s"}`
-                : "diff not shown"}
-            </span>
-          </li>
-        ))}
-      </ol>
+      <DiffPanelHost files={source.pr.files} />
     </main>
   );
 }
