@@ -131,12 +131,18 @@ describe("the append-only comment log", () => {
       body: "from grace",
     });
 
-    await ada.inbox.next((m) => m.t === "ack");
-    await grace.inbox.next((m) => m.t === "ack");
+    const adaAck = await ada.inbox.next((m) => m.t === "ack");
+    const graceAck = await grace.inbox.next((m) => m.t === "ack");
+    if (adaAck.t !== "ack" || graceAck.t !== "ack") throw new Error("expected acks");
+    // Two opens fired without awaiting either ack in between still land as
+    // one definite, gap-free sequence -- the property the Durable Object
+    // provides for free from being single-threaded. This is a fresh
+    // `isolatedKey()`, so the pair is exactly {1, 2}, in whichever order the
+    // DO actually processed them.
+    expect([adaAck.seq, graceAck.seq].sort((a, b) => a - b)).toEqual([1, 2]);
 
     const third = await join(key, "hopper");
-    // Both threads are present, in one definite order, with consecutive
-    // sequence numbers -- the property the Durable Object provides for free.
+    // Both threads are present, in one definite order.
     expect(third.snapshot.threads.order).toHaveLength(2);
     const bodies = third.snapshot.threads.order.map(
       (id) => third.snapshot.threads.threads[id]?.comments[0]?.body
@@ -290,5 +296,88 @@ describe("rejects, before anything reaches the log", () => {
     ws.send('{"t":"drop-tables"}');
 
     expect(await closed).toBe(1003);
+  });
+});
+
+describe("resilience", () => {
+  it("a repeat hello on one socket resolves to the same reviewer, not a second one", async () => {
+    const key = isolatedKey();
+    const { ws, inbox } = await connect(key);
+
+    // Fired without awaiting a response in between: this is what actually
+    // contends. Both `webSocketMessage` invocations for this socket's two
+    // `hello`s are in flight together -- exactly the shape that would let a
+    // stray `await` before the dedup check interleave them.
+    send(ws, { t: "hello", lastSeenSeq: 0, nickname: "ada", persistent: false });
+    send(ws, { t: "hello", lastSeenSeq: 0, nickname: "ada", persistent: false });
+
+    const first = await inbox.next((m) => m.t === "snapshot", 2_000);
+    const second = await inbox.next((m) => m.t === "snapshot", 2_000);
+    if (first.t !== "snapshot" || second.t !== "snapshot") {
+      throw new Error("expected two snapshots");
+    }
+
+    // Both hellos must resolve to the SAME reviewer id. Two different ids
+    // would orphan the first one: it would never appear in presence again
+    // (the socket's single attachment slot can only hold one), silently
+    // burying whichever identity lost the race.
+    expect(second.youAre).toBe(first.youAre);
+
+    const grace = await join(key, "grace");
+    expect(grace.snapshot.presence.filter((p) => p.nickname === "ada")).toHaveLength(1);
+
+    // And nothing about the race consumed a sequence number that never got
+    // broadcast -- the sibling project's actual bug. `hello` never appends to
+    // the log, so the very next real event must still land on seq 1, not
+    // seq 2 with a silent, unbroadcast gap at 1.
+    send(grace.ws, {
+      t: "openThread",
+      clientSeq: 1,
+      anchor: anchorFor("src/auth/session.ts", 15),
+      body: "first comment after the hello race",
+    });
+    const ack = await grace.inbox.next((m) => m.t === "ack", 2_000);
+    if (ack.t !== "ack") throw new Error("expected an ack");
+    expect(ack.seq).toBe(1);
+  });
+
+  it("keeps broadcasting to the rest of the room after one socket goes bad", async () => {
+    const key = isolatedKey();
+    const bad = await join(key, "ada");
+    const good = await join(key, "grace");
+
+    let badClosed = false;
+    bad.ws.addEventListener("close", () => {
+      badClosed = true;
+    });
+    // A malformed message closes only the sender (see the earlier "closes a
+    // socket" tests) -- but per the sibling project's Important 5, the
+    // just-closed socket can still be enumerable by `ctx.getWebSockets()` for
+    // a beat afterwards. Wait for the CLOSE to actually land client-side,
+    // then force a broadcast and prove the room survives regardless.
+    bad.ws.send('{"t":"drop-tables"}');
+    for (let i = 0; i < 100 && !badClosed; i += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+    expect(badClosed).toBe(true);
+
+    send(good.ws, {
+      t: "openThread",
+      clientSeq: 1,
+      anchor: anchorFor("src/auth/session.ts", 15),
+      body: "after a neighbor went bad",
+    });
+
+    // The actual property: the OTHER socket must still get its ack and its
+    // own delta. An unguarded `ws.send` to the dead socket inside `broadcast`
+    // would throw mid-loop, and depending on iteration order could silence
+    // this delta (or the whole room) instead of just skipping the dead peer.
+    const ack = await good.inbox.next((m) => m.t === "ack", 2_000);
+    if (ack.t !== "ack") throw new Error("expected an ack");
+    const delta = await good.inbox.next((m) => m.t === "delta" && m.seq === ack.seq, 2_000);
+    if (delta.t !== "delta" || delta.event.type !== "threadOpened") {
+      throw new Error("expected the threadOpened delta");
+    }
+    expect(delta.event.comment.body).toBe("after a neighbor went bad");
   });
 });
