@@ -143,10 +143,22 @@ with the AI pass.
 them changes what gets deployed.
 
 It needs a repository secret **`CLOUDFLARE_API_TOKEN`** — **UNVERIFIED**, not yet added.
-Create one in the Cloudflare dashboard from the "Edit Cloudflare Workers" template (or, at
-minimum, Account → Workers Scripts → Edit) and add it with
-`gh secret set CLOUDFLARE_API_TOKEN`. Until that exists, the workflow will run and fail on
-the `wrangler deploy` step; deploy the Worker by hand from section 1 in the meantime.
+`wrangler` on the deploying machine is authenticated by OAuth, which cannot mint an API
+token, and none was available otherwise.
+
+The first version of this workflow ran on the docs push (which touched
+`packages/pr-do/wrangler.toml`) and failed with *"In a non-interactive environment, it's
+necessary to set a CLOUDFLARE_API_TOKEN environment variable"* — a red X on `main` for a
+missing credential rather than a real fault. It now guards on the secret and skips with a
+notice when it is absent. The guard is a **step-level** `if`, because the `secrets`
+context is not available in a job-level one (only `github`, `needs`, `vars` and `inputs`
+are), and the token is read through `env` so it never lands on a command line.
+
+To turn it on: create a token in the Cloudflare dashboard from the "Edit Cloudflare
+Workers" template (or, at minimum, Account → Workers Scripts → Edit), then
+`gh secret set CLOUDFLARE_API_TOKEN`. Until then, deploy the Worker by hand per section 1.
+`workflow_dispatch` is enabled so you can exercise the workflow without pushing a no-op
+change to `packages/**`.
 
 ---
 

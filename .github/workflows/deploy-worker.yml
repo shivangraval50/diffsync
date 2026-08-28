@@ -7,23 +7,47 @@ on:
     # and @diffsync/threads, so a change to any of them changes what is
     # deployed. Narrowing this filter would silently ship a stale Worker.
     paths: ["packages/**"]
+  # So the guard below, and the deploy itself, can be exercised without
+  # pushing a no-op change to packages/**.
+  workflow_dispatch:
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
+      # The `secrets` context is NOT available in a job-level `if` (only
+      # github, needs, vars and inputs are), so the guard has to be a step.
+      # Without it, every push touching packages/** leaves a red X on main
+      # reporting a missing credential rather than a real failure. The token
+      # is read through `env` rather than interpolated into the shell command,
+      # so it never becomes part of the command line.
+      - id: guard
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::CLOUDFLARE_API_TOKEN is not set, so the Worker deploy is skipped. Add it with \`gh secret set CLOUDFLARE_API_TOKEN\`, or deploy by hand: cd packages/pr-do && npx wrangler deploy. See DEPLOY.md."
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.guard.outputs.ready == 'true'
         with:
           # vendor/openbid is a workspace of this repo. The Worker itself does
           # not import @openbid/llm, but the root `npm ci` below cannot resolve
           # the workspace list without it.
           submodules: recursive
       - uses: actions/setup-node@v4
+        if: steps.guard.outputs.ready == 'true'
         with:
           node-version: 22
           cache: npm
       - run: npm ci
+        if: steps.guard.outputs.ready == 'true'
       - run: npx wrangler deploy
+        if: steps.guard.outputs.ready == 'true'
         working-directory: packages/pr-do
         env:
           # Repository secret. Needs the "Edit Cloudflare Workers" template, or
