@@ -11,6 +11,7 @@
     "packages/anchor/src",
     "packages/diff/src",
     "packages/threads/src",
-    "packages/protocol/src"
+    "packages/protocol/src",
+    "packages/fixtures/src"
   ]
 }
