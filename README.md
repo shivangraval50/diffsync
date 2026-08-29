@@ -124,7 +124,7 @@ that silence is a test.
 
 ## Testing
 
-**333 unit, property and component tests across 39 files**, plus **4 Playwright tests in
+**335 unit, property and component tests across 39 files**, plus **4 Playwright tests in
 2 spec files**. 55 non-test source files (4,114 lines) are covered by 41 test files
 (5,909 lines).
 
@@ -171,7 +171,7 @@ guest identities, genuinely two reviewers rather than two tabs:
   source line — and must *not* also be rendered inline pretending to be current.
 
 ```bash
-npm test        # 333 tests, 39 files — includes the Durable Object tests, which run
+npm test        # 335 tests, 39 files — includes the Durable Object tests, which run
                 # under @cloudflare/vitest-pool-workers against a real workerd
 npm run e2e     # Playwright: two reviewers, and a force-push
 npm run typecheck
